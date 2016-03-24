@@ -15,5 +15,5 @@ def translate_view(datas):
 
 def get_plugins(model):
     return [
-        (_('Translate view'), translate_view),
+        #(_('Translate view'), translate_view),
     ]

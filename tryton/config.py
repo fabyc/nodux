@@ -38,8 +38,8 @@ class ConfigManager(object):
     "Config manager"
 
     def __init__(self):
-        short_version = '.'.join(VERSION.split('.', 2)[:2])
-        demo_server = 'demo%s.tryton.org' % short_version
+        short_version = '1.1' #short_version = '.'.join(VERSION.split('.', 2)[:2])
+        demo_server = 'demo%s.nodux.ec' % short_version # demo_server = 'demo%s.tryton.org' % short_version
         demo_database = 'demo%s' % short_version
         form_tab = 'left' if os.name != 'nt' else 'top'
         self.defaults = {
@@ -67,8 +67,8 @@ class ConfigManager(object):
             'client.email': '',
             'client.can_change_accelerators': False,
             'client.limit': 1000,
-            'roundup.url': 'http://bugs.tryton.org/roundup/',
-            'roundup.xmlrpc': 'roundup-xmlrpc.tryton.org',
+            'roundup.url': 'http://bugs.nodux.ec/roundup/',
+            'roundup.xmlrpc': 'roundup-xmlrpc.nodux.ec',
             'menu.pane': 200,
             'menu.expanded': True,
         }

@@ -401,7 +401,7 @@ class DBLogin(object):
         image.set_from_file(os.path.join(PIXMAPS_DIR, 'tryton.png'))
         image.set_alignment(0.5, 1)
         ebox = gtk.EventBox()
-        ebox.modify_bg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#1b2019"))
+        ebox.modify_bg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#e21a2d"))
         ebox.add(image)
         self.table_main.attach(ebox, 0, 3, 0, 1, ypadding=2)
 
@@ -420,11 +420,11 @@ class DBLogin(object):
         self.profile_label.set_padding(3, 3)
         self.profile_button = gtk.Button(_('_Manage profiles'))
         self.profile_button.connect('clicked', self.profile_manage)
-        self.table_main.attach(self.profile_label, 0, 1, 1, 2,
-            xoptions=gtk.FILL)
-        self.table_main.attach(self.combo_profile, 1, 2, 1, 2)
-        self.table_main.attach(self.profile_button, 2, 3, 1, 2,
-            xoptions=gtk.FILL)
+        #self.table_main.attach(self.profile_label, 0, 1, 1, 2,
+        #    xoptions=gtk.FILL)
+        #self.table_main.attach(self.combo_profile, 1, 2, 1, 2)
+        #self.table_main.attach(self.profile_button, 2, 3, 1, 2,
+        #    xoptions=gtk.FILL)
         image = gtk.Image()
         image.set_from_stock('gtk-edit', gtk.ICON_SIZE_BUTTON)
         self.profile_button.set_image(image)

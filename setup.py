@@ -89,6 +89,7 @@ if os.name == 'nt':
                 'pangocairo',
                 'gio',
             ],
+            'dll_excludes': ['dnsapi.dll', 'usp10.dll', 'iphlpapi.dll'],
         }
     }
     args['zipfile'] = 'library.zip'

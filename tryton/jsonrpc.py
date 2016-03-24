@@ -147,7 +147,7 @@ class Transport(xmlrpclib.Transport, xmlrpclib.SafeTransport):
             self, host)
         if extra_headers is None:
             extra_headers = []
-        extra_headers.append(('Connection', 'keep-alive'))
+        #extra_headers.append(('Connection', 'keep-alive'))
         return host, extra_headers, x509
 
     def send_content(self, connection, request_body):
