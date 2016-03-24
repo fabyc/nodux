@@ -401,7 +401,7 @@ class DBLogin(object):
         image.set_from_file(os.path.join(PIXMAPS_DIR, 'tryton.png'))
         image.set_alignment(0.5, 1)
         ebox = gtk.EventBox()
-        ebox.modify_bg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#e21a2d"))
+        ebox.modify_bg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#c61f34"))
         ebox.add(image)
         self.table_main.attach(ebox, 0, 3, 0, 1, ypadding=2)
 

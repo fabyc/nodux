@@ -987,6 +987,6 @@ class Screen(SignalEvent):
         if view_ids:
             query_string.append(('views', json.dumps(view_ids)))
         query_string = urllib.urlencode(query_string)
-        return urlparse.urlunparse(('Nodux',
+        return urlparse.urlunparse(('nodux',
                 '%s:%s' % (rpc._HOST, rpc._PORT),
                 '/'.join(path), query_string, '', ''))

@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: tryton 3.3.dev0\n"
 "Report-Msgid-Bugs-To: issue_tracker@tryton.org\n"
 "POT-Creation-Date: 2014-10-19 12:07+0200\n"
-"PO-Revision-Date: 2016-02-15 16:38-0500\n"
+"PO-Revision-Date: 2016-03-22 13:04-0500\n"
 "Last-Translator: Fabian C. <fabianc7@gmail.com>\n"
 "Language-Team: Ecuador <fabianc7@gmail.com>\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
@@ -244,7 +244,7 @@ msgstr "M"
 
 #: tryton/common/common.py:1407
 msgid "w"
-msgstr "S"
+msgstr "s"
 
 #: tryton/common/common.py:1408
 msgid "d"
@@ -1498,7 +1498,7 @@ msgstr "Abrir"
 
 #: tryton/gui/window/win_export.py:147
 msgid "Add _field names"
-msgstr "Agregar nombres de _campo"
+msgstr "Añadir nombres de _campo"
 
 #: tryton/gui/window/win_export.py:217
 msgid "Name"
@@ -1873,7 +1873,7 @@ msgstr "Confuso"
 
 #: tryton/gui/window/view_form/view/form_gtk/widget.py:305
 msgid "You need to save the record before adding translations!"
-msgstr "Debe guardar el registro antes de agregar traducciones!"
+msgstr "Debe guardar el registro antes de añadir traducciones!"
 
 #: tryton/gui/window/view_form/view/form_gtk/widget.py:316
 msgid "No other language available!"

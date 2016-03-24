@@ -67,8 +67,8 @@ class ConfigManager(object):
             'client.email': '',
             'client.can_change_accelerators': False,
             'client.limit': 1000,
-            'roundup.url': 'http://bugs.nodux.ec/roundup/',
-            'roundup.xmlrpc': 'roundup-xmlrpc.nodux.ec',
+            'roundup.url': 'http://soporte.nodux.ec',
+            'roundup.xmlrpc': 'soporte-xmlrpc.nodux.ec',
             'menu.pane': 200,
             'menu.expanded': True,
         }
