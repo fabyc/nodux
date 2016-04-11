@@ -858,8 +858,8 @@ class ErrorDialog(UniqueDialog):
             gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT)
         dialog.set_has_separator(True)
 
-        but_send = gtk.Button(_('Report Bug'))
-        dialog.add_action_widget(but_send, gtk.RESPONSE_OK)
+        #but_send = gtk.Button(_('Report Bug'))
+        #dialog.add_action_widget(but_send, gtk.RESPONSE_OK)
         dialog.add_button("gtk-close", gtk.RESPONSE_CANCEL)
         dialog.set_default_response(gtk.RESPONSE_CANCEL)
 
