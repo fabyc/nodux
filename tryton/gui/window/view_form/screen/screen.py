@@ -2,13 +2,11 @@
 # this repository contains the full copyright notices and license terms.
 "Screen"
 import copy
+import functools
 import gobject
 import datetime
 import calendar
-try:
-    import simplejson as json
-except ImportError:
-    import json
+import json
 import collections
 import urllib
 import urlparse
@@ -113,12 +111,12 @@ class Screen(SignalEvent):
 
             def remove_bin(widget):
                 assert isinstance(widget, (gtk.ScrolledWindow, gtk.Viewport))
-                parent = widget.parent
+                parent = widget.get_parent()
                 parent.remove(widget)
                 child = widget.get_child()
                 while isinstance(child, (gtk.ScrolledWindow, gtk.Viewport)):
                     child = child.get_child()
-                child.parent.remove(child)
+                child.get_parent().remove(child)
                 parent.add(child)
                 return child
 
@@ -138,13 +136,14 @@ class Screen(SignalEvent):
         self.__current_view = 0
         self.search_value = search_value
         self.fields_view_tree = {}
-        self.order = order
+        self.order = self.default_order = order
         self.view_to_load = []
         self._domain_parser = {}
         self.pre_validate = False
         self.view_to_load = mode[:]
         if view_ids or mode:
             self.switch_view()
+        self.count_tab_domain()
 
     def __repr__(self):
         return '<Screen %s at %s>' % (self.model_name, id(self))
@@ -252,29 +251,7 @@ class Screen(SignalEvent):
             context.update(self.context_screen.get_on_change_value())
             self.new_group(context)
 
-        domain = []
-
-        if self.domain_parser and not self.parent:
-            if search_string is not None:
-                domain = self.domain_parser.parse(search_string)
-            else:
-                domain = self.search_value
-            self.screen_container.set_text(self.domain_parser.string(domain))
-        else:
-            domain = [('id', 'in', [x.id for x in self.group])]
-
-        if domain:
-            if self.domain:
-                domain = ['AND', domain, self.domain]
-        else:
-            domain = self.domain
-
-        if self.current_view.view_type == 'calendar':
-            if domain:
-                domain = ['AND', domain, self.current_view.current_domain()]
-            else:
-                domain = self.current_view.current_domain()
-
+        domain = self.search_domain(search_string, True)
         tab_domain = self.screen_container.get_tab_domain()
         if tab_domain:
             domain = ['AND', domain, tab_domain]
@@ -303,7 +280,49 @@ class Screen(SignalEvent):
             return ids
         self.clear()
         self.load(ids)
+        self.count_tab_domain()
         return bool(ids)
+
+    def search_domain(self, search_string=None, set_text=False):
+        domain = []
+        # Test first parent to avoid calling unnecessary domain_parser
+        if not self.parent and self.domain_parser:
+            if search_string is not None:
+                domain = self.domain_parser.parse(search_string)
+            else:
+                domain = self.search_value
+            if set_text:
+                self.screen_container.set_text(
+                    self.domain_parser.string(domain))
+        else:
+            domain = [('id', 'in', [x.id for x in self.group])]
+
+        if domain:
+            if self.domain:
+                domain = ['AND', domain, self.domain]
+        else:
+            domain = self.domain
+
+        if self.current_view and self.current_view.view_type == 'calendar':
+            if domain:
+                domain = ['AND', domain, self.current_view.current_domain()]
+            else:
+                domain = self.current_view.current_domain()
+        return domain
+
+    def count_tab_domain(self):
+        def set_tab_counter(count, idx):
+            self.screen_container.set_tab_counter(count(), idx)
+        screen_domain = self.search_domain(self.screen_container.get_text())
+        for idx, (name, domain, count) in enumerate(
+                self.screen_container.tab_domain):
+            if not count:
+                continue
+            domain = ['AND', domain, screen_domain]
+            set_tab_counter(lambda: None, idx)
+            RPCExecute('model', self.model_name,
+                'search_count', domain, context=self.context,
+                callback=functools.partial(set_tab_counter, idx=idx))
 
     @property
     def context(self):
@@ -369,16 +388,14 @@ class Screen(SignalEvent):
 
     def __set_current_record(self, record):
         self.__current_record = record
-        try:
-            pos = self.group.index(record) + self.offset + 1
-        except ValueError:
-            pos = []
-            i = record
-            while i:
-                pos.append(i.group.index(i) + 1)
-                i = i.parent
-            pos.reverse()
-            pos = tuple(pos)
+        if record:
+            try:
+                pos = self.group.index(record) + self.offset + 1
+            except ValueError:
+                # XXX offset?
+                pos = record.get_index_path()
+        else:
+            pos = None
         self.signal('record-message', (pos or 0, len(self.group) + self.offset,
             self.search_count, record and record.id))
         attachment_count = 0
@@ -413,10 +430,11 @@ class Screen(SignalEvent):
         return False
 
     def destroy(self):
-        self.group.destroy()
         for view in self.views:
             view.destroy()
+        del self.views[:]
         super(Screen, self).destroy()
+        self.group.destroy()
 
     def default_row_activate(self):
         if (self.current_view.view_type == 'tree' and
@@ -516,7 +534,7 @@ class Screen(SignalEvent):
 
         return view
 
-    def new(self, default=True):
+    def new(self, default=True, rec_name=None):
         previous_view = self.current_view
         if self.current_view.view_type == 'calendar':
             selected_date = self.current_view.get_selected_date()
@@ -528,7 +546,7 @@ class Screen(SignalEvent):
             group = self.current_record.group
         else:
             group = self.group
-        record = group.new(default)
+        record = group.new(default, rec_name=rec_name)
         group.add(record, self.new_model_position())
         if previous_view.view_type == 'calendar':
             previous_view.set_default_date(record, selected_date)
@@ -553,7 +571,7 @@ class Screen(SignalEvent):
         if self.current_record:
             self.current_record.cancel()
             if self.current_record.id < 0:
-                self.remove()
+                self.remove(records=[self.current_record])
 
     def save_current(self):
         if not self.current_record:
@@ -635,8 +653,9 @@ class Screen(SignalEvent):
         for record in records:
             self.group.unremove(record)
 
-    def remove(self, delete=False, remove=False, force_remove=False):
-        records = self.selected_records
+    def remove(self, delete=False, remove=False, force_remove=False,
+            records=None):
+        records = records or self.selected_records
         if not records:
             return
         if delete:
@@ -701,7 +720,12 @@ class Screen(SignalEvent):
             return
         if view.view_type == 'form' and self.tree_states_done:
             return
+        if (view.view_type == 'tree'
+                and not view.attributes.get('tree_state', False)):
+            return
         parent = self.parent.id if self.parent else None
+        if parent is not None and parent < 0:
+            return
         expanded_nodes, selected_nodes = [], []
         timestamp = self.parent._timestamp if self.parent else None
         state = self.tree_states[parent][view.children_field]

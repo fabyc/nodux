@@ -31,6 +31,7 @@ from .form_gtk.one2one import One2One
 from .form_gtk.richtextbox import RichTextBox
 from .form_gtk.dictionary import DictWidget
 from .form_gtk.multiselection import MultiSelection
+from .form_gtk.pyson import PYSON
 from .form_gtk.state_widget import (Label, VBox, Image, Frame, ScrolledWindow,
     Notebook, Alignment)
 
@@ -73,15 +74,21 @@ class Container(object):
 
         yopt = 0
         if attributes.get('yexpand'):
-            yopt |= gtk.EXPAND
+            yopt = gtk.EXPAND
         if attributes.get('yfill'):
-            yopt |= gtk.FILL
+            if yopt:
+                yopt |= gtk.FILL
+            else:
+                yopt = gtk.FILL
 
         xopt = 0
         if attributes.get('xexpand', True):
-            xopt |= gtk.EXPAND
+            xopt = gtk.EXPAND
         if attributes.get('xfill', True):
-            xopt |= gtk.FILL
+            if xopt:
+                xopt |= gtk.FILL
+            else:
+                xopt = gtk.FILL
 
         if attributes.get('help'):
             self.tooltips.set_tip(widget, attributes['help'])
@@ -377,6 +384,7 @@ class ViewForm(View):
         'richtext': RichTextBox,
         'dict': DictWidget,
         'multiselection': MultiSelection,
+        'pyson': PYSON,
         }
 
     @classmethod

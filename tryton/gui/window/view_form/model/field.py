@@ -723,8 +723,6 @@ class O2MField(Field):
         return screen_domain
 
     def validate(self, record, softvalidation=False, pre_validate=None):
-        if self.attrs.get('readonly'):
-            return True
         invalid = False
         ldomain = localize_domain(domain_inversion(
                 record.group.clean4inversion(pre_validate or []), self.name,
@@ -750,16 +748,15 @@ class O2MField(Field):
     def state_set(self, record, states=('readonly', 'required', 'invisible')):
         self._set_default_value(record)
         super(O2MField, self).state_set(record, states=states)
-        record.value[self.name].readonly = self.get_state_attrs(record).get(
-            'readonly', False)
 
     def get_removed_ids(self, record):
         return [x.id for x in record.value[self.name].record_removed]
 
     def domain_get(self, record):
         screen_domain, attr_domain = self.domains_get(record)
-        return concat(localize_domain(inverse_leaf(screen_domain), self.name),
-            attr_domain)
+        # Forget screen_domain because it only means at least one record
+        # and not all records
+        return attr_domain
 
 
 class M2MField(O2MField):
@@ -839,6 +836,13 @@ class ReferenceField(Field):
             rec_name = str(ref_id)
         record.value[self.name] = ref_model, ref_id
         record.value[self.name + '.rec_name'] = rec_name
+
+    def context_get(self, record):
+        context = super(ReferenceField, self).context_get(record)
+        if self.attrs.get('datetime_field'):
+            context['_datetime'] = record.get_eval(
+                )[self.attrs.get('datetime_field')]
+        return context
 
     def get_on_change_value(self, record):
         if record.parent_name == self.name and record.parent:

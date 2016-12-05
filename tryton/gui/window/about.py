@@ -4,7 +4,7 @@
 import gtk
 import gettext
 import webbrowser
-from tryton.config import TRYTON_ICON
+from tryton.config import TRYTON_ICON, CONFIG
 from tryton.common import get_toplevel_window
 from tryton import __version__
 
@@ -711,15 +711,17 @@ _ = gettext.gettext
 class About(object):
 
     def __init__(self):
-        gtk.about_dialog_set_email_hook(lambda widget, link:
-                webbrowser.open(link, new=2))
-        gtk.about_dialog_set_url_hook(lambda widget, link:
-                webbrowser.open(link, new=2))
+        if hasattr(gtk, 'about_dialog_set_email_hook'):
+            gtk.about_dialog_set_email_hook(lambda widget, link:
+                    webbrowser.open(link, new=2))
+        if hasattr(gtk, 'about_dialog_set_url_hook'):
+            gtk.about_dialog_set_url_hook(lambda widget, link:
+                    webbrowser.open(link, new=2))
         parent = get_toplevel_window()
         self.win = gtk.AboutDialog()
         self.win.set_transient_for(parent)
-        self.win.set_name('Nodux')
-        self.win.set_version('4.0.6.0')
+        self.win.set_name(CONFIG['client.title'])
+        self.win.set_version('4.2.1.0')
         #self.win.set_copyright(COPYRIGHT)
         self.win.set_license('Licencia Nodux')
         self.win.set_website('http://nodux.ec/')
