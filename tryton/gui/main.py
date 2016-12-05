@@ -409,13 +409,13 @@ class Main(object):
         imagemenuitem_disconnect.set_accel_path('<tryton>/File/Disconnect')
         menu_file.add(imagemenuitem_disconnect)
 
-        #menu_file.add(gtk.SeparatorMenuItem())
+        menu_file.add(gtk.SeparatorMenuItem())
 
         imagemenuitem_database = gtk.ImageMenuItem(_('Data_base'))
         image = gtk.Image()
         image.set_from_stock('tryton-system-file-manager', gtk.ICON_SIZE_MENU)
         imagemenuitem_database.set_image(image)
-        #menu_file.add(imagemenuitem_database)
+        menu_file.add(imagemenuitem_database)
 
         menu_database = gtk.Menu()
         menu_database.set_accel_group(self.accel_group)
