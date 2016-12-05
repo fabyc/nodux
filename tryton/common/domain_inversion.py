@@ -1,9 +1,10 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 
 import operator
 import types
 import datetime
+from collections import defaultdict
 
 
 def in_(a, b):
@@ -15,23 +16,17 @@ def in_(a, b):
     else:
         return operator.contains(b, a)
 
-OPERATORS = {
-    '=': operator.eq,
-    '>': operator.gt,
-    '<': operator.lt,
-    '<=': operator.le,
-    '>=': operator.ge,
-    '!=': operator.ne,
-    'in': in_,
-    'not in': lambda a, b: not in_(a, b),
-    # Those operators are not supported (yet ?)
-    'like': lambda a, b: True,
-    'ilike': lambda a, b: True,
-    'not like': lambda a, b: True,
-    'not ilike': lambda a, b: True,
-    'child_of': lambda a, b: True,
-    'not child_of': lambda a, b: True,
-}
+OPERATORS = defaultdict(lambda: lambda a, b: True)
+OPERATORS.update({
+        '=': operator.eq,
+        '>': operator.gt,
+        '<': operator.lt,
+        '<=': operator.le,
+        '>=': operator.ge,
+        '!=': operator.ne,
+        'in': in_,
+        'not in': lambda a, b: not in_(a, b),
+        })
 
 
 def locale_part(expression, field_name, locale_name='id'):
@@ -46,8 +41,7 @@ def locale_part(expression, field_name, locale_name='id'):
 def is_leaf(expression):
     return (isinstance(expression, (list, tuple))
         and len(expression) > 2
-        and isinstance(expression[1], basestring)
-        and expression[1] in OPERATORS)
+        and isinstance(expression[1], basestring))
 
 
 def constrained_leaf(part, boolop=operator.and_):
@@ -115,6 +109,18 @@ def inverse_leaf(domain):
         return map(inverse_leaf, domain)
 
 
+def filter_leaf(domain, field, model):
+    if domain in ('AND', 'OR'):
+        return domain
+    elif is_leaf(domain):
+        if domain[0].startswith(field) and len(domain) > 3:
+            if domain[3] != model:
+                return ('id', '=', None)
+        return domain
+    else:
+        return [filter_leaf(d, field, model) for d in domain]
+
+
 def eval_domain(domain, context, boolop=operator.and_):
     "compute domain boolean value according to the context"
     if is_leaf(domain):
@@ -132,7 +138,7 @@ def eval_domain(domain, context, boolop=operator.and_):
             eval_domain(domain[1:], context, boolop))
 
 
-def localize_domain(domain, field_name=None):
+def localize_domain(domain, field_name=None, strip_target=False):
     "returns only locale part of domain. eg: langage.code -> code"
     if domain in ('AND', 'OR', True, False):
         return domain
@@ -145,10 +151,12 @@ def localize_domain(domain, field_name=None):
         locale_name = 'id'
         if isinstance(domain[2], basestring):
             locale_name = 'rec_name'
+        n = 3 if strip_target else 4
         return [locale_part(domain[0], field_name, locale_name)] \
-            + list(domain[1:3]) + list(domain[4:])
+            + list(domain[1:n]) + list(domain[4:])
     else:
-        return [localize_domain(part, field_name) for part in domain]
+        return [localize_domain(part, field_name, strip_target)
+            for part in domain]
 
 
 def simplify(domain):
@@ -194,6 +202,17 @@ def concat(*domains, **kwargs):
         if domain:
             result.append(domain)
     return simplify(merge(result))
+
+
+def unique_value(domain):
+    "Return if unique, the field and the value"
+    if (isinstance(domain, list)
+            and len(domain) == 1
+            and '.' not in domain[0][0]
+            and domain[0][1] == '='):
+        return True, domain[0][1], domain[0][2]
+    else:
+        return False, None, None
 
 
 def parse(domain):
@@ -298,7 +317,7 @@ class Or(And):
                 field = self.base(field)
                 if (field in context
                         and (eval_leaf(part, context, operator.or_)
-                                or constrained_leaf(part, operator.or_))):
+                            or constrained_leaf(part, operator.or_))):
                     return True
                 elif (field in context
                         and not eval_leaf(part, context, operator.or_)):
@@ -484,6 +503,17 @@ def test_concat():
         'OR', [['a', '=', 1]], [['b', '=', 2]]]
 
 
+def test_unique_value():
+    domain = [['a', '=', 1]]
+    assert unique_value(domain) == (True, '=', 1)
+    domain = [['a', '!=', 1]]
+    assert unique_value(domain)[0] is False
+    domain = [['a', '=', 1], ['a', '=', 2]]
+    assert unique_value(domain)[0] is False
+    domain = [['a.b', '=', 1]]
+    assert unique_value(domain)[0] is False
+
+
 def test_evaldomain():
     domain = [['x', '>', 5]]
     assert eval_domain(domain, {'x': 6})
@@ -577,10 +607,12 @@ def test_localize():
     assert localize_domain(domain, 'x') == [['y', 'child_of', [1]]]
 
     domain = [['x.id', '=', 1, 'y']]
-    assert localize_domain(domain, 'x') == [['id', '=', 1]]
+    assert localize_domain(domain, 'x', False) == [['id', '=', 1, 'y']]
+    assert localize_domain(domain, 'x', True) == [['id', '=', 1]]
 
     domain = [['a.b.c', '=', 1, 'y', 'z']]
-    assert localize_domain(domain, 'x') == [['b.c', '=', 1, 'z']]
+    assert localize_domain(domain, 'x', False) == [['b.c', '=', 1, 'y', 'z']]
+    assert localize_domain(domain, 'x', True) == [['b.c', '=', 1, 'z']]
 
 if __name__ == '__main__':
     test_simple_inversion()

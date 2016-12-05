@@ -1,23 +1,22 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import operator
-from functools import cmp_to_key
 import gtk
 import gettext
 from collections import defaultdict
 
 from . import View
 from tryton.common.focus import (get_invisible_ancestor, find_focused_child,
-    next_focus_widget, find_focusable_child, tab_compare)
+    next_focus_widget, find_focusable_child, find_first_focus_widget)
 from tryton.common import Tooltips, node_attributes, ICONFACTORY
 from tryton.common.button import Button
 from tryton.config import CONFIG
-from .form_gtk.calendar import Calendar, DateTime, Time
+from .form_gtk.calendar import Date, Time, DateTime
 from .form_gtk.float import Float
 from .form_gtk.integer import Integer
 from .form_gtk.selection import Selection
 from .form_gtk.char import Char, Password
-from .form_gtk.float_time import FloatTime
+from .form_gtk.timedelta import TimeDelta
 from .form_gtk.checkbox import CheckBox
 from .form_gtk.reference import Reference
 from .form_gtk.binary import Binary
@@ -127,6 +126,7 @@ class ViewForm(View):
         if not container:
             node_attrs = node_attributes(node)
             container = Container(int(node_attrs.get('col', 4)))
+        mnemonics = {}
         for node in node.childNodes:
             if node.nodeType != node.ELEMENT_NODE:
                 continue
@@ -140,7 +140,16 @@ class ViewForm(View):
                     node_attrs[i_field] = int(node_attrs[i_field])
 
             parser = getattr(self, '_parse_%s' % node.tagName)
-            parser(node, container, node_attrs)
+            widget = parser(node, container, node_attrs)
+            if not widget:
+                continue
+            name = node_attrs.get('name')
+            if node.tagName == 'label' and name:
+                mnemonics[name] = widget
+            if node.tagName == 'field':
+                if name in mnemonics and widget.mnemonic_widget:
+                    mnemonics.pop(name).set_mnemonic_widget(
+                        widget.mnemonic_widget)
         return container
 
     def _parse_image(self, node, container, attributes):
@@ -158,10 +167,11 @@ class ViewForm(View):
                     attributes[attr] = field.attrs[attr]
         vbox = VBox(attrs=attributes)
         if attributes.get('string'):
-            label = gtk.Label(attributes['string'])
+            label = Label(attributes['string'], attrs=attributes)
             label.set_alignment(float(attributes.get('xalign', 0.0)),
                 float(attributes.get('yalign', 0.5)))
             vbox.pack_start(label)
+            self.state_widgets.append(label)
         vbox.pack_start(gtk.HSeparator())
         self.state_widgets.append(vbox)
         container.add(vbox, attributes)
@@ -190,6 +200,7 @@ class ViewForm(View):
         attributes.setdefault('xexpand', 0)
         self.state_widgets.append(label)
         container.add(label, attributes)
+        return label
 
     def _parse_newline(self, node, container, attributes):
         container.add_row()
@@ -206,13 +217,6 @@ class ViewForm(View):
         attributes.setdefault('colspan', 4)
         notebook = Notebook(attrs=attributes)
         notebook.set_scrollable(True)
-        positions = {
-            'top': gtk.POS_TOP,
-            'left': gtk.POS_LEFT,
-            'right': gtk.POS_RIGHT,
-            'bottom': gtk.POS_BOTTOM,
-            }
-        notebook.set_tab_pos(positions[CONFIG['client.form_tab']])
         notebook.set_border_width(3)
 
         # Force to display the first time it switches on a page
@@ -232,21 +236,7 @@ class ViewForm(View):
         self.parse(node, notebook)
 
     def _parse_page(self, node, notebook, attributes):
-        if CONFIG['client.form_tab'] == 'left':
-            angle = 90
-            tab_box = gtk.VBox(spacing=3)
-            image_pos, image_rotate = ('end',
-                gtk.gdk.PIXBUF_ROTATE_COUNTERCLOCKWISE)
-        elif CONFIG['client.form_tab'] == 'right':
-            angle = -90
-            tab_box = gtk.VBox(spacing=3)
-            image_pos, image_rotate = ('start',
-                gtk.gdk.PIXBUF_ROTATE_CLOCKWISE)
-        else:
-            angle = 0
-            tab_box = gtk.HBox(spacing=3)
-            image_pos, image_rotate = ('start',
-                gtk.gdk.PIXBUF_ROTATE_NONE)
+        tab_box = gtk.HBox(spacing=3)
         if 'name' in attributes:
             field = self.screen.group.fields[attributes['name']]
             if attributes['name'] == self.screen.exclude_field:
@@ -254,10 +244,7 @@ class ViewForm(View):
             for attr in ('states', 'string'):
                 if attr not in attributes and attr in field.attrs:
                     attributes[attr] = field.attrs[attr]
-        if '_' not in attributes['string']:
-            attributes['string'] = '_' + attributes['string']
-        label = gtk.Label(attributes['string'])
-        label.set_angle(angle)
+        label = gtk.Label('_' + attributes['string'].replace('_', '__'))
         label.set_use_underline(True)
         tab_box.pack_start(label)
 
@@ -265,13 +252,9 @@ class ViewForm(View):
             ICONFACTORY.register_icon(attributes['icon'])
             pixbuf = tab_box.render_icon(attributes['icon'],
                 gtk.ICON_SIZE_SMALL_TOOLBAR)
-            pixbuf = pixbuf.rotate_simple(image_rotate)
             icon = gtk.Image()
             icon.set_from_pixbuf(pixbuf)
-            if image_pos == 'end':
-                tab_box.pack_end(icon)
-            else:
-                tab_box.pack_start(icon)
+            tab_box.pack_start(icon)
         tab_box.show_all()
 
         viewport = gtk.Viewport()
@@ -323,6 +306,7 @@ class ViewForm(View):
                 int(attributes.get('width', -1)),
                 int(attributes.get('height', -1)))
         container.add(Alignment(widget.widget, attributes), attributes)
+        return widget
 
     def _parse_group(self, node, container, attributes):
         group = self.parse(node)
@@ -365,7 +349,7 @@ class ViewForm(View):
         pack(container.table, resize=True, shrink=True)
 
     WIDGETS = {
-        'date': Calendar,
+        'date': Date,
         'datetime': DateTime,
         'time': Time,
         'float': Float,
@@ -375,7 +359,7 @@ class ViewForm(View):
         'selection': Selection,
         'char': Char,
         'password': Password,
-        'float_time': FloatTime,
+        'timedelta': TimeDelta,
         'boolean': CheckBox,
         'reference': Reference,
         'binary': Binary,
@@ -443,9 +427,9 @@ class ViewForm(View):
         if record:
             for name, widgets in self.widgets.iteritems():
                 field = record.group.fields.get(name)
-                if field and 'valid' in field.get_state_attrs(record):
+                if field and 'invalid' in field.get_state_attrs(record):
                     for widget in widgets:
-                        field.get_state_attrs(record)['valid'] = True
+                        field.get_state_attrs(record)['invalid'] = False
                         widget.display(record, field)
 
     def display(self):
@@ -493,18 +477,15 @@ class ViewForm(View):
         record = self.screen.current_record
         if record:
             invalid_widgets = []
-            for name, widgets in self.widgets.iteritems():
+            for name in record.invalid_fields:
+                widgets = self.widgets.get(name, [])
                 for widget in widgets:
-                    field = record.group.fields.get(name)
-                    if not field:
-                        continue
-                    if not field.get_state_attrs(record).get('valid', True):
-                        invalid_widget = find_focusable_child(widget.widget)
-                        if invalid_widget:
-                            invalid_widgets.append(invalid_widget)
-            invalid_widgets.sort(key=cmp_to_key(tab_compare))
+                    invalid_widget = find_focusable_child(widget.widget)
+                    if invalid_widget:
+                        invalid_widgets.append(invalid_widget)
             if invalid_widgets:
-                focus_widget = invalid_widgets[0]
+                focus_widget = find_first_focus_widget(
+                    self._viewport, invalid_widgets)
         if focus_widget:
             for notebook in self.notebooks:
                 for i in range(notebook.get_n_pages()):

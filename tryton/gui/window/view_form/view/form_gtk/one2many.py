@@ -1,7 +1,8 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 import gettext
+import itertools
 
 from .widget import Widget
 from tryton.gui.window.view_form.screen import Screen
@@ -10,6 +11,7 @@ from tryton.gui.window.win_form import WinForm
 import tryton.common as common
 from tryton.common.placeholder_entry import PlaceholderEntry
 from tryton.common.completion import get_completion, update_completion
+from tryton.common.domain_parser import quote
 
 _ = gettext.gettext
 
@@ -20,7 +22,11 @@ class One2Many(Widget):
     def __init__(self, view, attrs):
         super(One2Many, self).__init__(view, attrs)
 
-        self.widget = gtk.VBox(homogeneous=False, spacing=2)
+        self.widget = gtk.Frame()
+        self.widget.set_shadow_type(gtk.SHADOW_NONE)
+        self.widget.get_accessible().set_name(attrs.get('string', ''))
+        vbox = gtk.VBox(homogeneous=False, spacing=2)
+        self.widget.add(vbox)
         self._readonly = True
         self._position = 0
         self._length = 0
@@ -48,7 +54,10 @@ class One2Many(Widget):
             hbox.pack_start(self.wid_text, expand=True, fill=True)
 
             if int(self.attrs.get('completion', 1)):
-                self.wid_completion = get_completion()
+                access = common.MODELACCESS[attrs['relation']]
+                self.wid_completion = get_completion(
+                    search=access['read'] and access['write'],
+                    create=attrs.get('create', True) and access['create'])
                 self.wid_completion.connect('match-selected',
                     self._completion_match_selected)
                 self.wid_completion.connect('action-activated',
@@ -170,7 +179,7 @@ class One2Many(Widget):
         frame = gtk.Frame()
         frame.add(hbox)
         frame.set_shadow_type(gtk.SHADOW_OUT)
-        self.widget.pack_start(frame, expand=False, fill=True)
+        vbox.pack_start(frame, expand=False, fill=True)
 
         self.screen = Screen(attrs['relation'],
             mode=attrs.get('mode', 'tree,form').split(','),
@@ -182,18 +191,13 @@ class One2Many(Widget):
         self.screen.pre_validate = bool(int(attrs.get('pre_validate', 0)))
         self.screen.signal_connect(self, 'record-message', self._sig_label)
 
-        self.widget.pack_start(self.screen.widget, expand=True, fill=True)
+        vbox.pack_start(self.screen.widget, expand=True, fill=True)
 
         self.screen.widget.connect('key_press_event', self.on_keypress)
         if self.attrs.get('add_remove'):
             self.wid_text.connect('key_press_event', self.on_keypress)
 
         but_switch.props.sensitive = self.screen.number_of_views > 1
-
-    def _color_widget(self):
-        if hasattr(self.screen.current_view, 'treeview'):
-            return self.screen.current_view.treeview
-        return super(One2Many, self)._color_widget()
 
     def on_keypress(self, widget, event):
         if (event.keyval == gtk.keysyms.F3) \
@@ -233,20 +237,10 @@ class One2Many(Widget):
 
     def switch_view(self, widget):
         self.screen.switch_view()
-        self.color_set(self.color_name)
 
     @property
     def modified(self):
         return self.screen.current_view.modified
-
-    def color_set(self, name):
-        super(One2Many, self).color_set(name)
-        widget = self._color_widget()
-        # if the style to apply is different from readonly then insensitive
-        # cellrenderers should use the default insensitive color
-        if name != 'readonly':
-            widget.modify_text(gtk.STATE_INSENSITIVE,
-                    self.colors['text_color_insensitive'])
 
     def _readonly_set(self, value):
         self._readonly = value
@@ -287,7 +281,6 @@ class One2Many(Widget):
                 self._position
                 and self._position > 1))
         if self.attrs.get('add_remove'):
-            self.wid_text.set_sensitive(not self._readonly)
             self.but_add.set_sensitive(bool(
                     not self._readonly
                     and not size_limit
@@ -298,6 +291,7 @@ class One2Many(Widget):
                     and self._position
                     and access['write']
                     and access['read']))
+            self.wid_text.set_sensitive(self.but_add.get_sensitive())
 
         # New button must be added to focus chain to allow keyboard only
         # creation when there is no existing record on form view.
@@ -322,11 +316,18 @@ class One2Many(Widget):
                 return False
         return True
 
-    def _sig_new(self, widget=None):
+    def _sig_new(self, *args):
         if not common.MODELACCESS[self.screen.model_name]['create']:
             return
         if not self._validate():
             return
+
+        if self.attrs.get('product'):
+            self._new_product()
+        else:
+            self._new_single()
+
+    def _new_single(self):
         ctx = {}
         ctx.update(self.field.context_get(self.record))
         sequence = None
@@ -349,6 +350,56 @@ class One2Many(Widget):
             field_size -= len(self.field.get_eval(self.record)) + 1
             WinForm(self.screen, lambda a: update_sequence(), new=True,
                 many=field_size, context=ctx)
+
+    def _new_product(self):
+        fields = self.attrs['product'].split(',')
+        product = {}
+
+        first = self.screen.new(default=False)
+        default = first.default_get()
+        first.set_default(default)
+
+        def search_set(*args):
+            if not fields:
+                return make_product()
+            field = self.screen.group.fields[fields.pop()]
+            relation = field.attrs.get('relation')
+            if not relation:
+                search_set()
+
+            domain = field.domain_get(first)
+            context = field.context_get(first)
+
+            def callback(result):
+                if result:
+                    product[field.name] = result
+
+            win_search = WinSearch(relation, callback, sel_multi=True,
+                context=context, domain=domain)
+            win_search.win.connect('destroy', search_set)
+            win_search.screen.search_filter()
+            win_search.show()
+
+        def make_product(first=first):
+            if not product:
+                self.screen.group.remove(first, remove=True)
+                return
+
+            fields = product.keys()
+            for values in itertools.product(*product.values()):
+                if first:
+                    record = first
+                    first = None
+                else:
+                    record = self.screen.new(default=False)
+                default_value = default.copy()
+                for field, value in zip(fields, values):
+                    id_, rec_name = value
+                    default_value[field] = id_
+                    default_value[field + '.rec_name'] = rec_name
+                record.set_default(default_value)
+
+        search_set()
 
     def _sig_edit(self, widget=None):
         if not common.MODELACCESS[self.screen.model_name]['read']:
@@ -418,7 +469,8 @@ class One2Many(Widget):
             view_ids=self.attrs.get('view_ids', '').split(','),
             views_preload=self.attrs.get('views', {}),
             new=self.but_new.get_property('sensitive'))
-        win.screen.search_filter(text)
+        win.screen.search_filter(quote(text))
+        win.show()
 
     def _sig_label(self, screen, signal_data):
         self._position = signal_data[0]
@@ -449,18 +501,17 @@ class One2Many(Widget):
             if (self.screen.current_view.view_type == 'tree') \
                     and self.screen.current_view.editable:
                 self.screen.current_record = None
-            readonly = False
-            domain = []
-            size_limit = None
-            if record:
-                readonly = field.get_state_attrs(record).get('readonly', False)
-                domain = field.domain_get(record)
-                size_limit = record.expr_eval(self.attrs.get('size'))
-            if self.screen.domain != domain:
-                self.screen.domain = domain
-            if not self.screen.group.readonly and readonly:
-                self.screen.group.readonly = readonly
-            self.screen.size_limit = size_limit
+        readonly = False
+        domain = []
+        size_limit = None
+        if record:
+            readonly = field.get_state_attrs(record).get('readonly', False)
+            domain = field.domain_get(record)
+            size_limit = record.expr_eval(self.attrs.get('size'))
+        if self.screen.domain != domain:
+            self.screen.domain = domain
+        self.screen.group.readonly = readonly
+        self.screen.size_limit = size_limit
         self.screen.display()
         return True
 

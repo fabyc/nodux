@@ -1,11 +1,12 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 import gobject
 
 from .widget import Widget
 from tryton.common.selection import SelectionMixin, selection_shortcuts, \
     PopdownMixin
+from tryton.config import CONFIG
 
 
 class Selection(Widget, SelectionMixin, PopdownMixin):
@@ -15,7 +16,7 @@ class Selection(Widget, SelectionMixin, PopdownMixin):
 
         self.widget = gtk.HBox(spacing=3)
         self.entry = gtk.ComboBoxEntry()
-        child = self.entry.child
+        child = self.mnemonic_widget = self.entry.child
         child.set_property('activates_default', True)
         child.set_max_length(int(attrs.get('size', 0)))
         child.set_width_chars(10)
@@ -24,6 +25,8 @@ class Selection(Widget, SelectionMixin, PopdownMixin):
         child.connect('activate', lambda *a: self._focus_out())
         child.connect('focus-out-event', lambda *a: self._focus_out())
         self.entry.connect('changed', self.changed)
+        self.entry.connect('move-active', self._move_active)
+        self.entry.connect('scroll-event', self._scroll_event)
         self.widget.pack_start(self.entry)
         self.widget.set_focus_chain([child])
 
@@ -39,12 +42,23 @@ class Selection(Widget, SelectionMixin, PopdownMixin):
         # Must be deferred because it triggers a display of the form
         gobject.idle_add(focus_out)
 
+    def _move_active(self, combobox, scroll_type):
+        if not combobox.child.get_editable():
+            combobox.emit_stop_by_name('move-active')
+
+    def _scroll_event(self, combobox, event):
+        if not combobox.child.get_editable():
+            combobox.emit_stop_by_name('scroll-event')
+
     def _readonly_set(self, value):
         super(Selection, self)._readonly_set(value)
-        self.entry.set_sensitive(not value)
-
-    def _color_widget(self):
-        return self.entry.child
+        self.entry.child.set_editable(not value)
+        self.entry.set_button_sensitivity(
+            gtk.SENSITIVITY_OFF if value else gtk.SENSITIVITY_AUTO)
+        if value and CONFIG['client.fast_tabbing']:
+            self.widget.set_focus_chain([])
+        else:
+            self.widget.unset_focus_chain()
 
     def get_value(self):
         if not self.entry.child:  # entry is destroyed
@@ -68,6 +82,8 @@ class Selection(Widget, SelectionMixin, PopdownMixin):
         self.set_popdown(self.selection, self.entry)
         if not field:
             self.entry.set_active(-1)
+            # When setting no item GTK doesn't clear the entry
+            self.entry.child.set_text('')
             return
         super(Selection, self).display(record, field)
         value = field.get(record)

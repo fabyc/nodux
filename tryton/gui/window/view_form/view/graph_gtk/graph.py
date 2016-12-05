@@ -1,7 +1,7 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
-#This code is inspired by the pycha project
-#(http://www.lorenzogil.com/projects/pycha/)
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
+# This code is inspired by the pycha project
+# (http://www.lorenzogil.com/projects/pycha/)
 import gtk
 from functools import reduce
 from tryton.common import hex2rgb, generateColorscheme, \
@@ -15,7 +15,6 @@ import tryton.rpc as rpc
 import cairo
 from tryton.action import Action
 from tryton.gui.window import Window
-from tryton.translate import date_format
 
 
 class Popup(object):
@@ -204,7 +203,7 @@ class Graph(gtk.DrawingArea):
 
     def drawAxis(self, cr, width, height):
         cr.set_source_rgb(*hex2rgb('#000000'))
-        cr.set_line_width(1.5)
+        cr.set_line_width(0.5)
 
         # Y axis
         def drawYLabel(h, label):
@@ -273,9 +272,10 @@ class Graph(gtk.DrawingArea):
             x2 = x1 + self.area.w
 
         cr.save()
-        cr.set_source_rgb(*hex2rgb('#808080'))
-        cr.set_line_width(1.5)
+        cr.set_source_rgb(*hex2rgb('#A0A0A0'))
+        cr.set_line_width(0.3)
         cr.new_path()
+        cr.set_dash([5.0, 4.0])
         cr.move_to(x1, y1)
         cr.line_to(x2, y2)
         cr.close_path()
@@ -308,7 +308,7 @@ class Graph(gtk.DrawingArea):
         cr.rectangle(pos_x, pos_y, width, height)
         cr.set_source_rgba(1, 1, 1, 0.8)
         cr.fill_preserve()
-        cr.set_line_width(2)
+        cr.set_line_width(0.5)
         cr.set_source_rgb(*hex2rgb('#000000'))
         cr.stroke()
 
@@ -322,7 +322,7 @@ class Graph(gtk.DrawingArea):
                     y + bullet / 2.0 + text_height / 2.0)
             cr.show_text(keys2txt[key])
 
-        cr.set_line_width(1)
+        cr.set_line_width(0.5)
         x = pos_x + padding
         y = pos_y + padding
         for key in keys:
@@ -386,12 +386,16 @@ class Graph(gtk.DrawingArea):
                 if yfield['name'] == '#':
                     self.datas[x][key] += 1
                 else:
-                    self.datas[x][key] += \
-                        float(model[yfield['name']].get(model) or 0)
+                    value = model[yfield['name']].get(model)
+                    if isinstance(value, datetime.timedelta):
+                        value = value.total_seconds()
+                    self.datas[x][key] += float(value or 0)
+        date_format = self.view.screen.context.get('date_format', '%x')
+        datetime_format = date_format + ' %X'
         if isinstance(minx, datetime.datetime):
             date = minx
             while date <= maxx:
-                self.labels[date] = datetime_strftime(date, date_format())
+                self.labels[date] = datetime_strftime(date, datetime_format)
                 self.datas.setdefault(date, {})
                 for yfield in self.yfields:
                     self.datas[date].setdefault(
@@ -400,7 +404,7 @@ class Graph(gtk.DrawingArea):
         elif isinstance(minx, datetime.date):
             date = minx
             while date <= maxx:
-                self.labels[date] = datetime_strftime(date, date_format())
+                self.labels[date] = datetime_strftime(date, date_format)
                 self.datas.setdefault(date, {})
                 for yfield in self.yfields:
                     self.datas[date].setdefault(
@@ -464,7 +468,7 @@ class Graph(gtk.DrawingArea):
         color = self.attrs.get('color', 'blue')
         r, g, b = hex2rgb(COLOR_SCHEMES.get(color, color))
         maxcolor = max(max(r, g), b)
-        self.colorScheme = generateColorscheme(color, keys + ['__highlight'],
+        self.colorScheme = generateColorscheme(color, keys,
                 maxcolor / (len(keys) or 1))
         for yfield in self.yfields:
             if yfield.get('color'):

@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gobject
 from cellrenderertext import CellRendererText
 import locale
@@ -7,9 +7,9 @@ import locale
 
 class CellRendererInteger(CellRendererText):
 
-    def on_start_editing(self, event, widget, path, background_area,
+    def do_start_editing(self, event, widget, path, background_area,
             cell_area, flags):
-        editable = super(CellRendererInteger, self).on_start_editing(event,
+        editable = super(CellRendererInteger, self).do_start_editing(event,
                 widget, path, background_area, cell_area, flags)
         editable.set_alignment(1.0)
         editable.connect('insert_text', self.sig_insert_text)

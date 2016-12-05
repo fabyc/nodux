@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 
 import gtk
 import gobject
@@ -11,6 +11,7 @@ import subprocess
 import re
 import logging
 import unicodedata
+import colorsys
 from functools import partial
 from tryton.config import CONFIG
 from tryton.config import TRYTON_ICON, PIXMAPS_DIR
@@ -27,8 +28,7 @@ import threading
 import tryton.rpc as rpc
 import locale
 import socket
-import tempfile
-from tryton.version import VERSION
+from tryton import __version__
 import thread
 import urllib
 from string import Template
@@ -111,20 +111,10 @@ class TrytonIconFactory(gtk.IconFactory):
         except TrytonServerError:
             icons = []
         for icon in icons:
-            # svg file cannot be loaded from data into a pixbuf
-            fileno, path = tempfile.mkstemp()
-            with os.fdopen(fileno, 'w') as svgfile:
-                svgfile.write(icon['icon'])
-            try:
-                pixbuf = gtk.gdk.pixbuf_new_from_file(path.decode(
-                    sys.getfilesystemencoding().encode('utf-8')))
-            except glib.GError:
-                continue
-            finally:
-                os.remove(path)
-                self._tryton_icons.remove((icon['id'], icon['name']))
-                del self._name2id[icon['name']]
-                self._loaded_icons.add(icon['name'])
+            pixbuf = _data2pixbuf(icon['icon'])
+            self._tryton_icons.remove((icon['id'], icon['name']))
+            del self._name2id[icon['name']]
+            self._loaded_icons.add(icon['name'])
             iconset = gtk.IconSet(pixbuf)
             self.add(icon['name'], iconset)
 
@@ -241,7 +231,7 @@ def test_server_version(host, port):
     version = rpc.server_version(host, port)
     if not version:
         return False
-    return version.split('.')[:2] == VERSION.split('.')[:2]
+    return version.split('.')[:2] == __version__.split('.')[:2]
 
 
 def refresh_dblist(host, port):
@@ -284,8 +274,8 @@ def request_server(server_widget):
         title=_('Tryton Connection'),
         parent=parent,
         flags=gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT |
-            gtk.WIN_POS_CENTER_ON_PARENT |
-            gtk.gdk.WINDOW_TYPE_HINT_DIALOG,)
+        gtk.WIN_POS_CENTER_ON_PARENT |
+        gtk.gdk.WINDOW_TYPE_HINT_DIALOG,)
     dialog.set_has_separator(True)
     vbox = gtk.VBox()
     table = gtk.Table(2, 2, False)
@@ -385,7 +375,7 @@ def selection(title, values, alwaysask=False):
     dialog.set_icon(TRYTON_ICON)
     dialog.set_has_separator(True)
     dialog.set_default_response(gtk.RESPONSE_OK)
-    dialog.set_size_request(400, 400)
+    dialog.set_default_size(400, 400)
 
     label = gtk.Label(title or _('Your selection:'))
     dialog.vbox.pack_start(label, False, False)
@@ -445,7 +435,6 @@ def file_selection(title, filename='',
     win = gtk.FileChooserDialog(title, None, action, buttons)
     win.set_transient_for(parent)
     win.set_icon(TRYTON_ICON)
-    win.set_current_folder(CONFIG['client.default_path'])
     if filename:
         if action in (gtk.FILE_CHOOSER_ACTION_SAVE,
                 gtk.FILE_CHOOSER_ACTION_CREATE_FOLDER):
@@ -483,34 +472,16 @@ def file_selection(title, filename='',
         encoding = sys.getfilesystemencoding()
     button = win.run()
     if button != gtk.RESPONSE_OK:
-        parent.present()
-        win.destroy()
-        return False
-    if not multi:
-        filepath = win.get_filename()
-        if filepath:
-            filepath = unicode(filepath, encoding)
-            try:
-                CONFIG['client.default_path'] = \
-                    os.path.dirname(filepath)
-                CONFIG.save()
-            except IOError:
-                pass
-        parent.present()
-        win.destroy()
-        return filepath
+        result = None
+    elif not multi:
+        result = win.get_filename()
+        if result:
+            result = unicode(result, encoding)
     else:
-        filenames = win.get_filenames()
-        if filenames:
-            filenames = [unicode(x, encoding) for x in filenames]
-            try:
-                CONFIG['client.default_path'] = \
-                    os.path.dirname(filenames[0])
-            except IOError:
-                pass
-        parent.present()
-        win.destroy()
-        return filenames
+        result = [unicode(path, encoding) for path in win.get_filenames()]
+    parent.present()
+    win.destroy()
+    return result
 
 
 _slugify_strip_re = re.compile(r'[^\w\s-]')
@@ -585,7 +556,7 @@ def mailto(to=None, cc=None, subject=None, body=None, attachment=None):
             return
         except OSError:
             pass
-    #http://www.faqs.org/rfcs/rfc2368.html
+    # http://www.faqs.org/rfcs/rfc2368.html
     url = "mailto:"
     if to:
         if isinstance(to, unicode):
@@ -862,8 +833,8 @@ class ErrorDialog(UniqueDialog):
             gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT)
         dialog.set_has_separator(True)
 
-        but_send = gtk.Button(_('Report Bug'))
-        dialog.add_action_widget(but_send, gtk.RESPONSE_OK)
+        #but_send = gtk.Button(_('Report Bug'))
+        #dialog.add_action_widget(but_send, gtk.RESPONSE_OK)
         dialog.add_button("gtk-close", gtk.RESPONSE_CANCEL)
         dialog.set_default_response(gtk.RESPONSE_CANCEL)
 
@@ -923,7 +894,7 @@ class ErrorDialog(UniqueDialog):
         vbox.pack_start(button_roundup, False, False)
 
         dialog.vbox.pack_start(vbox)
-        dialog.set_size_request(600, 400)
+        dialog.set_default_size(600, 400)
         return dialog
 
     def __call__(self, title, details):
@@ -1069,7 +1040,7 @@ def process_exception(exception, *args, **kwargs):
                 'until its fingerprint is fixed.'), _('Security risk!'))
             from tryton.gui.main import Main
             Main.sig_quit()
-        elif exception.faultCode == 'NotLogged':
+        elif exception.faultCode.startswith('403'):
             if rpc.CONNECTION is None:
                 message(_('Connection error!\n'
                         'Unable to connect to the server!'))
@@ -1114,16 +1085,8 @@ def process_exception(exception, *args, **kwargs):
             else:
                 message(_('Concurrency Exception'), msg_type=gtk.MESSAGE_ERROR)
                 return False
-        elif exception.faultCode == 'NotLogged':
+        elif exception.faultCode.startswith('403'):
             from tryton.gui.main import Main
-            if kwargs.get('session', rpc._SESSION) != rpc._SESSION:
-                if args:
-                    try:
-                        return rpc_execute(*args)
-                    except TrytonServerError, exception:
-                        return process_exception(exception, *args,
-                            rpc_execute=rpc_execute)
-                return
             if not PLOCK.acquire(False):
                 return False
             hostname = rpc._HOST
@@ -1158,10 +1121,7 @@ def process_exception(exception, *args, **kwargs):
         error_title, error_detail = exception.faultCode, exception.faultString
     else:
         error_title = str(exception)
-        if 'tb' in kwargs:
-            error_detail = kwargs['tb']
-        else:
-            error_detail = traceback.format_exc()
+        error_detail = traceback.format_exc()
     error(error_title, error_detail)
     return False
 
@@ -1192,33 +1152,26 @@ def hex2rgb(hexstring, digits=2):
     return r / top, g / top, b / top
 
 
-def clamp(minValue, maxValue, value):
-    """Make sure value is between minValue and maxValue"""
-    if value < minValue:
-                return minValue
-    if value > maxValue:
-                return maxValue
-    return value
+def highlight_rgb(r, g, b, amount=0.1):
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    return colorsys.hsv_to_rgb(h, s, (v + amount) % 1)
 
 
-def lighten(r, g, b, amount):
-    """Return a lighter version of the color (r, g, b)"""
-    return (clamp(0.0, 1.0, r + amount),
-            clamp(0.0, 1.0, g + amount),
-            clamp(0.0, 1.0, b + amount))
-
-
-def generateColorscheme(masterColor, keys, light=0.06):
+def generateColorscheme(masterColor, keys, light=0.1):
     """
     Generates a dictionary where the keys match the keys argument and
     the values are colors derivated from the masterColor.
-    Each color is a lighter version of masterColor separated by a difference
-    given by the light argument.
+    Each color has a value higher then the previous of `light`.
+    Each color has a hue separated from the previous by the golden angle.
     The masterColor is given in a hex string format.
     """
     r, g, b = hex2rgb(COLOR_SCHEMES.get(masterColor, masterColor))
-    return dict([(key, lighten(r, g, b, light * i))
-        for i, key in enumerate(keys)])
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    if keys:
+        light = min(light, (1. - v) / len(keys))
+    golden_angle = 0.618033988749895
+    return {key: colorsys.hsv_to_rgb((h + golden_angle * i) % 1,
+            s, (v + light * i) % 1) for i, key in enumerate(keys)}
 
 
 class DBProgress(object):
@@ -1303,7 +1256,6 @@ class RPCProgress(object):
     def run(self, process_exception_p=True, callback=None):
         self.process_exception_p = process_exception_p
         self.callback = callback
-        self.session = rpc._SESSION
         if self.parent.window:
             watch = gtk.gdk.Cursor(gtk.gdk.WATCH)
             self.parent.window.set_cursor(watch)
@@ -1324,7 +1276,7 @@ class RPCProgress(object):
                     return RPCProgress('execute',
                         args).run(self.process_exception_p)
                 result = process_exception(self.exception, *self.args,
-                    rpc_execute=rpc_execute, session=self.session)
+                    rpc_execute=rpc_execute)
                 if result is False:
                     self.exception = RPCException(self.exception)
                 else:
@@ -1391,113 +1343,6 @@ COLOR_SCHEMES = {
     'darkcyan': '#305755',
 }
 
-COLORS = {
-    'invalid': '#ff6969',
-    'required': '#d2d2ff',
-}
-
-FLOAT_TIME_CONV = {
-    'Y': 8760,
-    'M': 672,
-    'w': 168,
-    'd': 24,
-    'h': 1,
-    'm': 1.0 / 60,
-}
-
-FLOAT_TIME_SEPS = {
-    'Y': _('Y'),
-    'M': _('M'),
-    'w': _('w'),
-    'd': _('d'),
-    'h': _('h'),
-    'm': _('m'),
-}
-
-
-def text_to_float_time(text, conv=None, digit=2):
-    if not text:
-        return None
-    try:
-        try:
-            return round(locale.atof(text), digit)
-        except ValueError:
-            pass
-        if conv:
-            tmp_conv = FLOAT_TIME_CONV.copy()
-            tmp_conv.update(conv)
-            conv = tmp_conv
-        else:
-            conv = FLOAT_TIME_CONV
-        for key in FLOAT_TIME_SEPS.keys():
-            text = text.replace(FLOAT_TIME_SEPS[key], key + ' ')
-        value = 0
-        for buf in text.split(' '):
-            buf = buf.strip()
-            if ':' in buf:
-                hour, min = buf.split(':')
-                value += abs(int(hour or 0))
-                value += abs(int(min or 0) * conv['m'])
-                continue
-            elif '-' in buf and not buf.startswith('-'):
-                hour, min = buf.split('-')
-                value += abs(int(hour or 0))
-                value += abs(int(min or 0) * conv['m'])
-                continue
-            try:
-                value += abs(locale.atof(buf))
-                continue
-            except ValueError:
-                pass
-            for sep in conv.keys():
-                if buf.endswith(sep):
-                    value += abs(locale.atof(buf[:-len(sep)])) * conv[sep]
-                    break
-        if text.startswith('-'):
-            value *= -1
-        return round(value, digit)
-    except ValueError:
-        return 0.0
-
-
-def float_time_to_text(val, conv=None):
-    if val is None:
-        return ''
-    if conv:
-        tmp_conv = FLOAT_TIME_CONV.copy()
-        tmp_conv.update(conv)
-        conv = tmp_conv
-    else:
-        conv = FLOAT_TIME_CONV
-
-    value = ''
-    if val < 0:
-        value += '-'
-    val = abs(val)
-    years = int(val / conv['Y'])
-    val = val - years * conv['Y']
-    months = int(val / conv['M'])
-    val = val - months * conv['M']
-    weeks = int(val / conv['w'])
-    val = val - weeks * conv['w']
-    days = int(val / conv['d'])
-    val = val - days * conv['d']
-    hours = int(val)
-    val = val - hours
-    mins = int((val % 1 + 0.01) / conv['m'])
-    if years:
-        value += ' ' + locale.format('%d', years, True) + FLOAT_TIME_SEPS['Y']
-    if months:
-        value += ' ' + locale.format('%d', months, True) + FLOAT_TIME_SEPS['M']
-    if weeks:
-        value += ' ' + locale.format('%d', weeks, True) + FLOAT_TIME_SEPS['w']
-    if days:
-        value += ' ' + locale.format('%d', days, True) + FLOAT_TIME_SEPS['d']
-    if hours or mins or not value:
-        value += ' %02d:%02d' % (hours, mins)
-    value = value.strip()
-    return value
-
 
 def filter_domain(domain):
     '''
@@ -1522,7 +1367,7 @@ def timezoned_date(date, reverse=False):
     szone = dateutil.tz.tzutc()
     if reverse:
         lzone, szone = szone, lzone
-    return date.replace(tzinfo=szone).astimezone(lzone)
+    return date.replace(tzinfo=szone).astimezone(lzone).replace(tzinfo=None)
 
 
 def untimezoned_date(date):
@@ -1572,7 +1417,7 @@ def resize_pixbuf(pixbuf, width, height):
 
 def _data2pixbuf(data):
     loader = gtk.gdk.PixbufLoader()
-    loader.write(data, len(data))
+    loader.write(bytes(data), len(data))
     loader.close()
     return loader.get_pixbuf()
 

@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 import gettext
 import gobject
@@ -11,15 +11,17 @@ from tryton.exceptions import TrytonServerError, TrytonError
 _ = gettext.gettext
 
 
-def get_completion():
+def get_completion(search=True, create=True):
     "Return a EntryCompletion"
     completion = gtk.EntryCompletion()
     completion.set_match_func(lambda *a: True)
     completion.set_model(gtk.ListStore(str, int))
     completion.set_text_column(0)
     completion.props.popup_set_width = False
-    completion.insert_action_markup(0, _('<i>Search...</i>'))
-    completion.insert_action_markup(1, _('<i>Create...</i>'))
+    if search:
+        completion.insert_action_markup(0, _('<i>Search...</i>'))
+    if create:
+        completion.insert_action_markup(1, _('<i>Create...</i>'))
     return completion
 
 

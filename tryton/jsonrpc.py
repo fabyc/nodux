@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import xmlrpclib
 try:
     import simplejson as json
@@ -15,8 +15,10 @@ import StringIO
 import hashlib
 import base64
 import threading
+import errno
 from functools import partial
 from contextlib import contextmanager
+import string
 
 __all__ = ["ResponseError", "Fault", "ProtocolError", "Transport",
     "ServerProxy", "ServerPool"]
@@ -55,8 +57,11 @@ def object_hook(dct):
         elif dct['__class__'] == 'time':
             return datetime.time(dct['hour'], dct['minute'], dct['second'],
                 dct['microsecond'])
-        elif dct['__class__'] == 'buffer':
-            return buffer(base64.decodestring(dct['base64']))
+        elif dct['__class__'] == 'timedelta':
+            return datetime.timedelta(seconds=dct['seconds'])
+        elif dct['__class__'] == 'bytes':
+            cast = bytearray if bytes == str else bytes
+            return cast(base64.decodestring(dct['base64']))
         elif dct['__class__'] == 'Decimal':
             return Decimal(dct['decimal'])
     return dct
@@ -93,8 +98,12 @@ class JSONEncoder(json.JSONEncoder):
                 'second': obj.second,
                 'microsecond': obj.microsecond,
                 }
-        elif isinstance(obj, buffer):
-            return {'__class__': 'buffer',
+        elif isinstance(obj, datetime.timedelta):
+            return {'__class__': 'timedelta',
+                'seconds': obj.total_seconds(),
+                }
+        elif isinstance(obj, (bytes, bytearray)):
+            return {'__class__': 'bytes',
                 'base64': base64.encodestring(obj),
                 }
         elif isinstance(obj, Decimal):
@@ -117,13 +126,14 @@ class JSONParser(object):
 
 
 class JSONUnmarshaller(object):
-    data = ''
+    def __init__(self):
+        self.data = []
 
     def feed(self, data):
-        self.data += data
+        self.data.append(data)
 
     def close(self):
-        return json.loads(self.data, object_hook=object_hook)
+        return json.loads(''.join(self.data), object_hook=object_hook)
 
 
 class Transport(xmlrpclib.Transport, xmlrpclib.SafeTransport):
@@ -131,11 +141,12 @@ class Transport(xmlrpclib.Transport, xmlrpclib.SafeTransport):
     accept_gzip_encoding = True
     encode_threshold = 1400  # common MTU
 
-    def __init__(self, fingerprints=None, ca_certs=None):
+    def __init__(self, fingerprints=None, ca_certs=None, session=None):
         xmlrpclib.Transport.__init__(self)
         self._connection = (None, None)
         self.__fingerprints = fingerprints
         self.__ca_certs = ca_certs
+        self.session = session
 
     def getparser(self):
         target = JSONUnmarshaller()
@@ -147,6 +158,12 @@ class Transport(xmlrpclib.Transport, xmlrpclib.SafeTransport):
             self, host)
         if extra_headers is None:
             extra_headers = []
+        if self.session:
+            auth = base64.encodestring(self.session)
+            auth = string.join(string.split(auth), "")  # get rid of whitespace
+            extra_headers.append(
+                ('Authorization', 'Session ' + auth),
+                )
         extra_headers.append(('Connection', 'keep-alive'))
         return host, extra_headers, x509
 
@@ -192,6 +209,7 @@ class Transport(xmlrpclib.Transport, xmlrpclib.SafeTransport):
             self._connection[1].connect()
             sock = self._connection[1].sock
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
         def https_connection():
             self._connection = host, HTTPSConnection(host,
@@ -200,6 +218,7 @@ class Transport(xmlrpclib.Transport, xmlrpclib.SafeTransport):
                 self._connection[1].connect()
                 sock = self._connection[1].sock
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 try:
                     peercert = sock.getpeercert(True)
                 except socket.error:
@@ -238,10 +257,13 @@ class ServerProxy(xmlrpclib.ServerProxy):
     __id = 0
 
     def __init__(self, host, port, database='', verbose=0,
-            fingerprints=None, ca_certs=None):
+            fingerprints=None, ca_certs=None, session=None):
         self.__host = '%s:%s' % (host, port)
-        self.__handler = '/' + database
-        self.__transport = Transport(fingerprints, ca_certs)
+        if database:
+            self.__handler = '/%s/' % database
+        else:
+            self.__handler = '/'
+        self.__transport = Transport(fingerprints, ca_certs, session)
         self.__verbose = verbose
 
     def __request(self, methodname, params):
@@ -261,8 +283,8 @@ class ServerProxy(xmlrpclib.ServerProxy):
                 verbose=self.__verbose
                 )
         except (socket.error, httplib.HTTPException), v:
-            # trap  'Broken pipe'
-            if isinstance(v, socket.error) and v.args[0] != 32:
+            if (isinstance(v, socket.error)
+                    and v.args[0] == errno.EPIPE):
                 raise
             # try one more time
             self.__transport.close()
@@ -299,6 +321,7 @@ class ServerPool(object):
         self._lock = threading.Lock()
         self._pool = []
         self._used = {}
+        self.session = None
 
     def getconn(self):
         with self._lock:

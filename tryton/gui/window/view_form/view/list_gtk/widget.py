@@ -1,10 +1,9 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 
 import os
 import tempfile
 import gtk
-import locale
 import gettext
 import webbrowser
 
@@ -13,11 +12,9 @@ from functools import wraps, partial
 from tryton.gui.window.win_search import WinSearch
 from tryton.gui.window.win_form import WinForm
 from tryton.gui.window.view_form.screen import Screen
-import tryton.rpc as rpc
-from tryton.common import COLORS, file_selection, file_open, slugify
+from tryton.common import file_selection, file_open, slugify
 import tryton.common as common
 from tryton.common.cellrendererbutton import CellRendererButton
-from tryton.common.cellrendererdate import CellRendererDate
 from tryton.common.cellrenderertext import CellRendererText, \
     CellRendererTextCompletion
 from tryton.common.cellrenderertoggle import CellRendererToggle
@@ -27,10 +24,12 @@ from tryton.common.cellrendererfloat import CellRendererFloat
 from tryton.common.cellrendererbinary import CellRendererBinary
 from tryton.common.cellrendererclickablepixbuf import \
     CellRendererClickablePixbuf
-from tryton.translate import date_format
 from tryton.common import data2pixbuf
 from tryton.common.completion import get_completion, update_completion
 from tryton.common.selection import SelectionMixin, PopdownMixin
+from tryton.common.datetime_ import CellRendererDate, CellRendererTime
+from tryton.common.datetime_strftime import datetime_strftime
+from tryton.common.domain_parser import quote
 
 _ = gettext.gettext
 
@@ -113,7 +112,11 @@ class CellCache(list):
         return wrapper
 
 
-class Affix(object):
+class Cell(object):
+    pass
+
+
+class Affix(Cell):
 
     def __init__(self, view, attrs, protocol=None):
         super(Affix, self).__init__()
@@ -168,10 +171,10 @@ class Affix(object):
             webbrowser.open(value, new=2)
 
 
-class Char(object):
+class GenericText(Cell):
 
     def __init__(self, view, attrs, renderer=None):
-        super(Char, self).__init__()
+        super(GenericText, self).__init__()
         self.attrs = attrs
         if renderer is None:
             renderer = CellRendererText
@@ -180,6 +183,7 @@ class Char(object):
         if not isinstance(self.renderer, CellRendererBinary):
             self.renderer.connect_after('editing-started', send_keys,
                 view.treeview)
+        self.renderer.set_property('yalign', 0)
         self.view = view
 
     @property
@@ -204,18 +208,12 @@ class Char(object):
                     (CellRendererText, CellRendererDate, CellRendererCombo)):
                 cell.set_property('strikethrough', record.deleted)
             cell.set_property('text', text)
-            fg_color = self.get_color(record)
-            cell.set_property('foreground', fg_color)
-            if fg_color == 'black':
-                cell.set_property('foreground-set', False)
-            else:
-                cell.set_property('foreground-set', True)
 
         field = record[self.attrs['name']]
 
         if self.attrs.get('type', field.attrs.get('type')) in \
                 ('float', 'integer', 'biginteger', 'boolean',
-                'numeric', 'float_time'):
+                'numeric', 'timedelta'):
             align = 1
         else:
             align = 0
@@ -235,21 +233,6 @@ class Char(object):
             if invisible:
                 readonly = True
 
-            if not isinstance(cell, CellRendererToggle):
-                bg_color = 'white'
-                if not field.get_state_attrs(record).get('valid', True):
-                    bg_color = COLORS.get('invalid', 'white')
-                elif bool(int(
-                            field.get_state_attrs(record).get('required', 0))):
-                    bg_color = COLORS.get('required', 'white')
-                cell.set_property('background', bg_color)
-                if bg_color == 'white':
-                    cell.set_property('background-set', False)
-                else:
-                    cell.set_property('background-set', True)
-                    cell.set_property('foreground-set',
-                        not (record.deleted or record.removed))
-
             if isinstance(cell, CellRendererToggle):
                 cell.set_property('activatable', not readonly)
             elif isinstance(cell, (gtk.CellRendererProgress,
@@ -262,9 +245,6 @@ class Char(object):
                 cell.set_property('activatable', False)
 
         cell.set_property('xalign', align)
-
-    def get_color(self, record):
-        return record.expr_eval(self.view.attributes.get('colors', '"black"'))
 
     def open_remote(self, record, create, changed=False, text=None,
             callback=None):
@@ -291,7 +271,20 @@ class Char(object):
         return record, field
 
 
-class Int(Char):
+class Char(GenericText):
+
+    @realized
+    @CellCache.cache
+    def setter(self, column, cell, store, iter_):
+        super(Char, self).setter(column, cell, store, iter_)
+        cell.set_property('single-paragraph-mode', True)
+
+
+class Text(GenericText):
+    pass
+
+
+class Int(GenericText):
 
     def __init__(self, view, attrs, renderer=None):
         if renderer is None:
@@ -312,7 +305,7 @@ class Int(Char):
             callback()
 
 
-class Boolean(Char):
+class Boolean(GenericText):
 
     def __init__(self, view, attrs=None,
             renderer=None):
@@ -346,35 +339,61 @@ class URL(Char):
         cell.set_property('visible', not readonly)
 
 
-class Date(Char):
+class Date(GenericText):
 
     def __init__(self, view, attrs, renderer=None):
         if renderer is None:
-            renderer = partial(CellRendererDate, date_format())
+            renderer = CellRendererDate
         super(Date, self).__init__(view, attrs, renderer=renderer)
-        self.renderer.connect('editing-started', self.editing_started)
-
-
-class Datetime(Date):
 
     @realized
     def setter(self, column, cell, store, iter):
-        super(Datetime, self).setter(column, cell, store, iter)
         record = store.get_value(iter, 0)
         field = record[self.attrs['name']]
-        time_format = field.time_format(record)
-        self.renderer.format = date_format() + ' ' + time_format
+        self.renderer.props.format = self.get_format(record, field)
+        super(Date, self).setter(column, cell, store, iter)
+
+    def get_format(self, record, field):
+        if field and record:
+            return field.date_format(record)
+        else:
+            return '%x'
+
+    def get_textual_value(self, record):
+        if not record:
+            return ''
+        value = record[self.attrs['name']].get_client(record)
+        if value:
+            return datetime_strftime(value, self.renderer.props.format)
+        else:
+            return ''
 
 
 class Time(Date):
 
-    @realized
-    def setter(self, column, cell, store, iter):
-        super(Time, self).setter(column, cell, store, iter)
-        record = store.get_value(iter, 0)
-        field = record[self.attrs['name']]
-        time_format = field.time_format(record)
-        self.renderer.format = time_format
+    def __init__(self, view, attrs, renderer=None):
+        if renderer is None:
+            renderer = CellRendererTime
+        super(Time, self).__init__(view, attrs, renderer=renderer)
+
+    def get_format(self, record, field):
+        if field and record:
+            return field.time_format(record)
+        else:
+            return '%X'
+
+    def get_textual_value(self, record):
+        if not record:
+            return ''
+        value = record[self.attrs['name']].get_client(record)
+        if value is not None:
+            return value.strftime(self.renderer.props.format)
+        else:
+            return ''
+
+
+class TimeDelta(GenericText):
+    pass
 
 
 class Float(Int):
@@ -393,39 +412,17 @@ class Float(Int):
         cell.digits = digits
 
 
-class FloatTime(Char):
-
-    def __init__(self, view, attrs, renderer=None):
-        super(FloatTime, self).__init__(view, attrs, renderer=renderer)
-        self.conv = None
-        if attrs and attrs.get('float_time'):
-            self.conv = rpc.CONTEXT.get(attrs['float_time'])
-
-    def get_textual_value(self, record):
-        val = record[self.attrs['name']].get(record)
-        return common.float_time_to_text(val, self.conv)
-
-    def value_from_text(self, record, text, callback=None):
-        field = record[self.attrs['name']]
-        digits = field.digits(record)
-        field.set_client(record,
-            common.text_to_float_time(text, self.conv, digits[1]))
-        if callback:
-            callback()
-
-
-class Binary(Char):
+class Binary(GenericText):
 
     def __init__(self, view, attrs, renderer=None):
         self.filename = attrs.get('filename')
         if renderer is None:
             renderer = partial(CellRendererBinary, bool(self.filename))
         super(Binary, self).__init__(view, attrs, renderer=renderer)
-        self.renderer.connect('new', self.new_binary)
+        self.renderer.connect('select', self.select_binary)
         self.renderer.connect('open', self.open_binary)
         self.renderer.connect('save', self.save_binary)
         self.renderer.connect('clear', self.clear_binary)
-        self.last_open_file = None
 
     def get_textual_value(self, record):
         pass
@@ -460,14 +457,10 @@ class Binary(Char):
                 readonly = True
             cell.set_property('editable', not readonly)
 
-    def new_binary(self, renderer, path):
+    def select_binary(self, renderer, path):
         record, field = self._get_record_field(path)
         filename = ''
-        if self.last_open_file:
-            last_id, last_filename = self.last_open_file
-            if last_id == record.id:
-                filename = last_filename
-        filename = file_selection(_('Open...'), filename=filename)
+        filename = file_selection(_('Open...'))
         if filename:
             field.set_client(record, open(filename, 'rb').read())
             if self.filename:
@@ -495,7 +488,6 @@ class Binary(Char):
         if type_:
             type_ = type_[1:]
         file_open(file_path, type_)
-        self.last_open_file = (record.id, file_path)
 
     def save_binary(self, renderer, path):
         filename = ''
@@ -517,7 +509,7 @@ class Binary(Char):
         field.set_client(record, False)
 
 
-class Image(Char):
+class Image(GenericText):
 
     def __init__(self, view, attrs=None, renderer=None):
         if renderer is None:
@@ -538,13 +530,19 @@ class Image(Char):
             else:
                 value = field.get_data(record)
         pixbuf = data2pixbuf(value)
-        if self.attrs['width'] != -1 or self.attrs['height'] != -1:
+        if (self.attrs.get('width', -1) != -1 or
+                self.attrs.get('height', -1) != -1):
             pixbuf = common.resize_pixbuf(pixbuf,
                 self.attrs['width'], self.attrs['height'])
         cell.set_property('pixbuf', pixbuf)
 
+    def get_textual_value(self, record):
+        if not record:
+            return ''
+        return str(record[self.attrs['name']].get_size(record))
 
-class M2O(Char):
+
+class M2O(GenericText):
 
     def __init__(self, view, attrs, renderer=None):
         if renderer is None and int(attrs.get('completion', 1)):
@@ -562,8 +560,12 @@ class M2O(Char):
         relation = record[self.attrs['name']].attrs['relation']
         domain = record[self.attrs['name']].domain_get(record)
         context = record[self.attrs['name']].context_get(record)
-        self.search_remote(record, relation, text, domain=domain,
+        win = self.search_remote(record, relation, text, domain=domain,
             context=context, callback=callback)
+        if len(win.screen.group) == 1:
+            win.response(None, gtk.RESPONSE_OK)
+        else:
+            win.show()
 
     def open_remote(self, record, create=True, changed=False, text=None,
             callback=None):
@@ -571,7 +573,8 @@ class M2O(Char):
         relation = field.attrs['relation']
 
         access = common.MODELACCESS[relation]
-        if create and not access['create']:
+        if (create
+                and not (self.attrs.get('create', True) and access['create'])):
             return
         elif not access['read']:
             return
@@ -584,10 +587,11 @@ class M2O(Char):
             obj_id = field.get(record)
         else:
             self.search_remote(record, relation, text, domain=domain,
-                context=context, callback=callback)
+                context=context, callback=callback).show()
             return
         screen = Screen(relation, domain=domain, context=context,
-            mode=['form'])
+            mode=['form'], view_ids=self.attrs.get('view_ids', '').split(','),
+            exclude_field=field.attrs.get('relation_field'))
 
         def open_callback(result):
             if result:
@@ -605,6 +609,9 @@ class M2O(Char):
     def search_remote(self, record, relation, text, domain=None,
             context=None, callback=None):
         field = record.group.fields[self.attrs['name']]
+        relation = field.attrs['relation']
+        access = common.MODELACCESS[relation]
+        create_access = self.attrs.get('create', True) and access['create']
 
         def search_callback(found):
             value = None
@@ -614,13 +621,19 @@ class M2O(Char):
             if callback:
                 callback()
         win = WinSearch(relation, search_callback, sel_multi=False,
-            context=context, domain=domain)
-        win.screen.search_filter(text.decode('utf-8'))
+            context=context, domain=domain,
+            view_ids=self.attrs.get('view_ids', '').split(','),
+            new=create_access)
+        win.screen.search_filter(quote(text.decode('utf-8')))
+        return win
 
     def set_completion(self, entry, path):
         if entry.get_completion():
             entry.set_completion(None)
-        completion = get_completion()
+        access = common.MODELACCESS[self.attrs['relation']]
+        completion = get_completion(
+            search=access['read'],
+            create=self.attrs.get('create', True) and access['create'])
         completion.connect('match-selected', self._completion_match_selected,
             path)
         completion.connect('action-activated',
@@ -659,21 +672,25 @@ class M2O(Char):
     def _completion_action_activated(self, completion, index, path):
         record, field = self._get_record_field(path)
         entry = completion.get_entry()
+        entry.handler_block(entry.editing_done_id)
 
         def callback():
+            entry.handler_unblock(entry.editing_done_id)
             entry.set_text(field.get_client(record))
         if index == 0:
             self.open_remote(record, create=False, changed=True,
                 text=entry.get_text(), callback=callback)
         elif index == 1:
             self.open_remote(record, create=True, callback=callback)
+        else:
+            entry.handler_unblock(entry.editing_done_id)
 
 
 class O2O(M2O):
     pass
 
 
-class O2M(Char):
+class O2M(GenericText):
 
     @realized
     def setter(self, column, cell, store, iter):
@@ -700,6 +717,7 @@ class O2M(Char):
             return
 
         screen = Screen(relation, mode=['tree', 'form'],
+            view_ids=self.attrs.get('view_ids', '').split(','),
             exclude_field=field.attrs.get('relation_field'))
         screen.pre_validate = bool(int(self.attrs.get('pre_validate', 0)))
         screen.group = group
@@ -721,6 +739,7 @@ class M2M(O2M):
         domain = field.domain_get(record)
 
         screen = Screen(relation, mode=['tree', 'form'],
+            view_ids=self.attrs.get('view_ids', '').split(','),
             exclude_field=field.attrs.get('relation_field'))
         screen.group = group
 
@@ -731,12 +750,12 @@ class M2M(O2M):
             context=context)
 
 
-class Selection(Char, SelectionMixin, PopdownMixin):
+class Selection(GenericText, SelectionMixin, PopdownMixin):
 
-    def __init__(self, *args):
-        super(Selection, self).__init__(*args)
-        self.renderer = CellRendererCombo()
-        self.renderer.connect('editing-started', self.editing_started)
+    def __init__(self, *args, **kwargs):
+        if 'renderer' not in kwargs:
+            kwargs['renderer'] = CellRendererCombo
+        super(Selection, self).__init__(*args, **kwargs)
         self.init_selection()
         self.renderer.set_property('model',
             self.get_popdown_model(self.selection)[0])
@@ -783,7 +802,7 @@ class Selection(Char, SelectionMixin, PopdownMixin):
         return False
 
 
-class Reference(Char, SelectionMixin):
+class Reference(GenericText, SelectionMixin):
 
     def __init__(self, view, attrs, renderer=None):
         super(Reference, self).__init__(view, attrs, renderer=renderer)
@@ -823,24 +842,29 @@ class ProgressBar(object):
         orientation = self.orientations.get(self.attrs.get('orientation',
             'left_to_right'), gtk.PROGRESS_LEFT_TO_RIGHT)
         self.renderer.set_property('orientation', orientation)
+        self.renderer.set_property('yalign', 0)
 
     @realized
     @CellCache.cache
     def setter(self, column, cell, store, iter):
         record = store.get_value(iter, 0)
         field = record[self.attrs['name']]
-        value = float(self.get_textual_value(record) or 0.0)
-        cell.set_property('value', value)
-        digit = field.digits(record)[1]
-        text = locale.format('%.*f', (digit, value), True)
-        cell.set_property('text', text + '%')
+        field.state_set(record, states=('invisible',))
+        invisible = field.get_state_attrs(record).get('invisible', False)
+        cell.set_property('visible', not invisible)
+        text = self.get_textual_value(record)
+        if text:
+            text = _('%s%%') % text
+        cell.set_property('text', text)
+        value = field.get(record) or 0.0
+        cell.set_property('value', value * 100)
 
     def open_remote(self, record, create, changed=False, text=None,
             callback=None):
         raise NotImplementedError
 
     def get_textual_value(self, record):
-        return record[self.attrs['name']].get_client(record) or ''
+        return record[self.attrs['name']].get_client(record, factor=100) or ''
 
     def value_from_text(self, record, text, callback=None):
         field = record[self.attrs['name']]
@@ -858,6 +882,7 @@ class Button(object):
         self.view = view
 
         self.renderer.connect('clicked', self.button_clicked)
+        self.renderer.set_property('yalign', 0)
 
     @realized
     @CellCache.cache
@@ -889,4 +914,8 @@ class Button(object):
         if state_changes.get('invisible') \
                 or state_changes.get('readonly'):
             return True
-        self.view.screen.button(self.attrs)
+        widget.handler_block_by_func(self.button_clicked)
+        try:
+            self.view.screen.button(self.attrs)
+        finally:
+            widget.handler_unblock_by_func(self.button_clicked)

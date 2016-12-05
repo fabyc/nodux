@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 
 from setuptools import setup, find_packages
 import os
@@ -18,55 +18,29 @@ try:
     from babel.messages import frontend as babel
 
     args['cmdclass'] = {
-            'compile_catalog': babel.compile_catalog,
-            'extract_messages': babel.extract_messages,
-            'init_catalog': babel.init_catalog,
-            'update_catalog': babel.update_catalog,
+        'compile_catalog': babel.compile_catalog,
+        'extract_messages': babel.extract_messages,
+        'init_catalog': babel.init_catalog,
+        'update_catalog': babel.update_catalog,
         }
 
     args['message_extractors'] = {
-            'tryton': [
-                ('**.py', 'python', None),
+        'tryton': [
+            ('**.py', 'python', None),
             ],
         }
 
 except ImportError:
         pass
 
-languages = (
-    'bg_BG',
-    'ca_ES',
-    'cs_CZ',
-    'de_DE',
-    'es_AR',
-    'es_CO',
-    'es_EC',
-    'es_ES',
-    'fr_FR',
-    'ja_JP',
-    'lt_LT',
-    'nl_NL',
-    'ru_RU',
-    'sl_SI',
-    )
-
-
-def all_languages():
-    for lang in languages:
-        yield lang
-        yield lang.split('_')[0]
-
-data_files = [
-    ('share/pixmaps/tryton', glob.glob('share/pixmaps/tryton/*.png') +
-        glob.glob('share/pixmaps/tryton/*.svg')),
-    ('share/locale', ['share/locale/tryton.pot']),
-    ]
-for lang in languages:
-    data_files += [
-        ('share/locale/%s/LC_MESSAGES' % lang,
-            glob.glob('share/locale/%s/LC_MESSAGES/*.mo' % lang) +
-            glob.glob('share/locale/%s/LC_MESSAGES/*.po' % lang)),
+package_data = {
+    'tryton': ['data/pixmaps/tryton/*.png',
+        'data/pixmaps/tryton/*.svg',
+        'data/locale/*/LC_MESSAGES/*.mo',
+        'data/locale/*/LC_MESSAGES/*.po',
         ]
+    }
+data_files = []
 
 if os.name == 'nt':
     import py2exe
@@ -74,7 +48,8 @@ if os.name == 'nt':
     args['windows'] = [{
         'script': os.path.join('bin', 'tryton'),
         'icon_resources': [
-                (1, os.path.join('share', 'pixmaps', 'tryton', 'tryton.ico'))],
+                (1, os.path.join('tryton', 'data', 'pixmaps',
+                        'tryton', 'tryton.ico'))],
     }]
     args['options'] = {
         'py2exe': {
@@ -83,13 +58,13 @@ if os.name == 'nt':
             'packages': [
                 'encodings',
                 'gtk',
-                'pytz',
                 'atk',
                 'pango',
                 'pangocairo',
                 'gio',
             ],
             'dll_excludes': ['dnsapi.dll', 'usp10.dll', 'iphlpapi.dll'],
+            'excludes': ['Tkconstants', 'Tkinter', 'tcl'],
         }
     }
     args['zipfile'] = 'library.zip'
@@ -109,42 +84,48 @@ elif sys.platform == 'darwin':
             'argv_emulation': True,
             'includes': ('pygtk, gtk, glib, cairo, pango, pangocairo, atk, '
                 'gobject, gio, gtk.keysyms'),
-            'resources': 'tryton/plugins',
+            'resources': 'tryton/plugins, tryton/data',
             'frameworks':
-            'librsvg-2.2.dylib, libjpeg.8.dylib, libtiff.3.dylib',
+            'librsvg-2.2.dylib, libjpeg.9.dylib, libtiff.5.dylib',
             'plist': {
                 'CFBundleIdentifier': 'org.tryton',
                 'CFBundleName': 'Tryton',
             },
-            'iconfile': os.path.join('share', 'pixmaps', 'tryton',
-                'tryton.icns'),
+            'iconfile': os.path.join('tryton', 'data', 'pixmaps',
+                'tryton', 'tryton.icns'),
         },
     }
+    del package_data['tryton']
 
-PACKAGE, VERSION, LICENSE, WEBSITE = None, None, None, None
-execfile(os.path.join('tryton', 'version.py'))
 
-major_version, minor_version, _ = VERSION.split('.', 2)
+def get_version():
+    init = read(os.path.join('tryton', '__init__.py'))
+    return re.search('__version__ = "([0-9.]*)"', init).group(1)
+
+version = get_version()
+major_version, minor_version, _ = version.split('.', 2)
 major_version = int(major_version)
 minor_version = int(minor_version)
+name = 'tryton'
 
 download_url = 'http://downloads.tryton.org/%s.%s/' % (
     major_version, minor_version)
 if minor_version % 2:
-    VERSION = '%s.%s.dev0' % (major_version, minor_version)
+    version = '%s.%s.dev0' % (major_version, minor_version)
     download_url = 'hg+http://hg.tryton.org/%s#egg=%s-%s' % (
-        PACKAGE, PACKAGE, VERSION)
+        name, name, version)
 
-dist = setup(name=PACKAGE,
-    version=VERSION,
+dist = setup(name=name,
+    version=version,
     description='Tryton client',
     long_description=read('README'),
     author='Tryton',
     author_email='issue_tracker@tryton.org',
-    url=WEBSITE,
+    url='http://www.tryton.org/',
     download_url=download_url,
     keywords='business application ERP',
     packages=find_packages(),
+    package_data=package_data,
     data_files=data_files,
     scripts=['bin/tryton'],
     classifiers=[
@@ -155,14 +136,17 @@ dist = setup(name=PACKAGE,
         'License :: OSI Approved :: GNU General Public License (GPL)',
         'Natural Language :: Bulgarian',
         'Natural Language :: Catalan',
+        'Natural Language :: Chinese (Simplified)',
         'Natural Language :: Czech',
         'Natural Language :: Dutch',
         'Natural Language :: English',
         'Natural Language :: French',
         'Natural Language :: German',
+        'Natural Language :: Hungarian',
+        'Natural Language :: Italian',
+        'Natural Language :: Portuguese (Brazilian)',
         'Natural Language :: Russian',
         'Natural Language :: Spanish',
-        'Natural Language :: Slovak',
         'Natural Language :: Slovenian',
         'Natural Language :: Japanese',
         'Operating System :: OS Independent',
@@ -170,10 +154,11 @@ dist = setup(name=PACKAGE,
         'Topic :: Office/Business',
         ],
     platforms='any',
-    license=LICENSE,
+    license='GPL-3',
     install_requires=[
-        #"pygtk >= 2.6",
+        # "pygtk >= 2.6",
         "python-dateutil",
+        "chardet",
         ],
     extras_require={
         'simplejson': ['simplejson'],
@@ -206,32 +191,16 @@ if os.name == 'nt':
 
     if 'py2exe' in dist.commands:
         import shutil
-        import pytz
-        import zipfile
 
         gtk_dir = find_gtk_dir()
 
         dist_dir = dist.command_obj['py2exe'].dist_dir
 
-        # pytz installs the zoneinfo directory tree in the same directory
-        # Make sure the layout of pytz hasn't changed
-        assert (pytz.__file__.endswith('__init__.pyc') or
-                pytz.__file__.endswith('__init__.py')), pytz.__file__
-        zoneinfo_dir = os.path.join(os.path.dirname(pytz.__file__), 'zoneinfo')
-        disk_basedir = os.path.dirname(os.path.dirname(pytz.__file__))
-        zipfile_path = os.path.join(dist_dir, 'library.zip')
-        z = zipfile.ZipFile(zipfile_path, 'a')
-        for absdir, directories, filenames in os.walk(zoneinfo_dir):
-            assert absdir.startswith(disk_basedir), (absdir, disk_basedir)
-            zip_dir = absdir[len(disk_basedir):]
-            for f in filenames:
-                z.write(os.path.join(absdir, f), os.path.join(zip_dir, f))
-        z.close()
-
-        if os.path.isdir(os.path.join(dist_dir, 'plugins')):
-            shutil.rmtree(os.path.join(dist_dir, 'plugins'))
-        shutil.copytree(os.path.join(os.path.dirname(__file__), 'tryton',
-                'plugins'), os.path.join(dist_dir, 'plugins'))
+        for dirname in ['plugins', 'data']:
+            if os.path.isdir(os.path.join(dist_dir, dirname)):
+                shutil.rmtree(os.path.join(dist_dir, dirname))
+            shutil.copytree(os.path.join(os.path.dirname(__file__), 'tryton',
+                    dirname), os.path.join(dist_dir, dirname))
 
         if os.path.isdir(os.path.join(dist_dir, 'etc')):
             shutil.rmtree(os.path.join(dist_dir, 'etc'))
@@ -259,17 +228,10 @@ if os.name == 'nt':
             if os.path.isfile(file):
                 shutil.copy(file, dist_dir)
 
-        for lang in all_languages():
-            if os.path.isdir(os.path.join(dist_dir, 'share', 'locale', lang)):
-                shutil.rmtree(os.path.join(dist_dir, 'share', 'locale', lang))
-            if os.path.isdir(os.path.join(gtk_dir, 'share', 'locale', lang)):
-                shutil.copytree(os.path.join(gtk_dir, 'share', 'locale', lang),
-                    os.path.join(dist_dir, 'share', 'locale', lang))
-            if os.path.isdir(os.path.join(os.path.dirname(__file__),
-                        'share', 'locale', lang)):
-                shutil.copytree(os.path.join(os.path.dirname(__file__),
-                        'share', 'locale', lang),
-                    os.path.join(dist_dir, 'share', 'locale', lang))
+        if os.path.isdir(os.path.join(dist_dir, 'share', 'locale')):
+            shutil.rmtree(os.path.join(dist_dir, 'share', 'locale'))
+        shutil.copytree(os.path.join(gtk_dir, 'share', 'locale'),
+            os.path.join(dist_dir, 'share', 'locale'))
 
         if os.path.isdir(os.path.join(dist_dir, 'share', 'themes',
                     'MS-Windows')):
@@ -281,10 +243,10 @@ if os.name == 'nt':
         makensis = find_makensis()
         if makensis:
             from subprocess import Popen
-            Popen([makensis, "/DVERSION=" + VERSION,
+            Popen([makensis, "/DVERSION=" + version,
                 str(os.path.join(os.path.dirname(__file__),
                     'setup.nsi'))]).wait()
-            Popen([makensis, "/DVERSION=" + VERSION,
+            Popen([makensis, "/DVERSION=" + version,
                 str(os.path.join(os.path.dirname(__file__),
                     'setup-single.nsi'))]).wait()
         else:
@@ -386,19 +348,10 @@ elif sys.platform == 'darwin':
                     dirname, 'gtkrc')
                 gtkrc.write(open(rcfile).read())
 
-        for lang in all_languages():
-            if os.path.isdir(os.path.join(resources_dir, 'share', 'locale',
-                        lang)):
-                shutil.rmtree(os.path.join(resources_dir, 'share', 'locale',
-                        lang))
-            if os.path.isdir(os.path.join(gtk_dir, 'share', 'locale', lang)):
-                shutil.copytree(os.path.join(gtk_dir, 'share', 'locale', lang),
-                    os.path.join(resources_dir, 'share', 'locale', lang))
-            if os.path.isdir(os.path.join(os.path.dirname(__file__),
-                        'share', 'locale', lang)):
-                shutil.copytree(os.path.join(os.path.dirname(__file__),
-                        'share', 'locale', lang),
-                    os.path.join(resources_dir, 'share', 'locale', lang))
+        if os.path.isdir(os.path.join(resources_dir, 'share', 'locale')):
+            shutil.rmtree(os.path.join(resources_dir, 'share', 'locale'))
+        shutil.copytree(os.path.join(gtk_dir, 'share', 'locale'),
+            os.path.join(resources_dir, 'share', 'locale'))
 
         # fix pathes within shared libraries
         for library in chain(
@@ -416,10 +369,10 @@ elif sys.platform == 'darwin':
             for lib in libs.keys():
                 fixed = lib.replace(gtk_dir + '/lib',
                     '@executable_path/../Frameworks')
-                Popen(['install_name_tool', '-change', lib, fixed,
-                        library]).wait()
+                Popen(['install_name_tool', '-change', lib, fixed, library]
+                    ).wait()
 
-        for file in ('CHANGELOG', 'COPYRIGHT', 'LICENSE', 'README', 'TODO'):
+        for file in ('CHANGELOG', 'COPYRIGHT', 'LICENSE', 'README'):
             shutil.copyfile(os.path.join(os.path.dirname(__file__), file),
                 os.path.join(dist_dir, file + '.txt'))
 
@@ -429,9 +382,9 @@ elif sys.platform == 'darwin':
         shutil.copytree(os.path.join(os.path.dirname(__file__), 'doc'),
                 doc_dist_dir)
 
-        dmg_file = os.path.join(os.path.dirname(__file__), 'tryton-' + VERSION
+        dmg_file = os.path.join(os.path.dirname(__file__), 'tryton-' + version
                 + '.dmg')
         if os.path.isfile(dmg_file):
             os.remove(dmg_file)
         Popen(['hdiutil', 'create', dmg_file, '-volname', 'Tryton Client '
-                + VERSION, '-fs', 'HFS+', '-srcfolder', dist_dir]).wait()
+                + version, '-fs', 'HFS+', '-srcfolder', dist_dir]).wait()

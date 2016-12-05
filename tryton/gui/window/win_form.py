@@ -1,18 +1,18 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
-from tryton.common import TRYTON_ICON, COLOR_SCHEMES
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
+from tryton.common import TRYTON_ICON
 import tryton.common as common
-from tryton.config import CONFIG
 import gtk
 import pango
 import gettext
 from tryton.gui.window.nomodal import NoModal
-from tryton.common import RPCExecute, RPCException
+from tryton.common.domain_parser import quote
+from .infobar import InfoBar
 
 _ = gettext.gettext
 
 
-class WinForm(NoModal):
+class WinForm(NoModal, InfoBar):
     "Form window"
 
     def __init__(self, screen, callback, view_type='form',
@@ -39,6 +39,7 @@ class WinForm(NoModal):
         self.win.set_icon(TRYTON_ICON)
         self.win.set_has_separator(False)
         self.win.set_deletable(False)
+        self.win.connect('delete-event', lambda *a: True)
         self.win.connect('close', self.close)
         self.win.connect('response', self.response)
 
@@ -72,6 +73,8 @@ class WinForm(NoModal):
             self.but_ok.set_can_default(True)
             self.but_ok.show()
             self.win.add_action_widget(self.but_ok, gtk.RESPONSE_OK)
+            if not new:
+                self.but_ok.props.sensitive = False
         else:
             self.but_ok = self.win.add_button(gtk.STOCK_OK,
                 gtk.RESPONSE_OK)
@@ -90,22 +93,8 @@ class WinForm(NoModal):
         title.modify_fg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#000000"))
         title.show()
 
-        self.info_label = gtk.Label()
-        self.info_label.set_padding(3, 3)
-        self.info_label.set_alignment(1.0, 0.5)
-
-        self.eb_info = gtk.EventBox()
-        self.eb_info.add(self.info_label)
-        self.eb_info.connect('button-release-event',
-                lambda *a: self.message_info(''))
-
-        vbox = gtk.VBox()
-        vbox.pack_start(self.eb_info, expand=True, fill=True, padding=5)
-        vbox.show()
-
         hbox = gtk.HBox()
         hbox.pack_start(title, expand=True, fill=True)
-        hbox.pack_start(vbox, expand=False, fill=True, padding=20)
         hbox.show()
 
         frame = gtk.Frame()
@@ -119,6 +108,9 @@ class WinForm(NoModal):
         eb.show()
 
         self.win.vbox.pack_start(eb, expand=False, fill=True, padding=3)
+
+        self.create_info_bar()
+        self.win.vbox.pack_start(self.info_bar, False, True)
 
         if view_type == 'tree':
             hbox = gtk.HBox(homogeneous=False, spacing=0)
@@ -281,16 +273,6 @@ class WinForm(NoModal):
         self.screen.display()
         self.screen.current_view.set_cursor()
 
-    def message_info(self, message, color='red'):
-        if message:
-            self.info_label.set_label(message)
-            self.eb_info.modify_bg(gtk.STATE_NORMAL, gtk.gdk.color_parse(
-                COLOR_SCHEMES.get(color, 'white')))
-            self.eb_info.show_all()
-        else:
-            self.info_label.set_label('')
-            self.eb_info.hide()
-
     def on_keypress(self, widget, event):
         if (event.keyval == gtk.keysyms.F3) \
                 and self.but_new.get_property('sensitive'):
@@ -332,17 +314,7 @@ class WinForm(NoModal):
         from tryton.gui.window.win_search import WinSearch
         domain = self.domain[:]
         model_name = self.screen.model_name
-
-        try:
-            if self.wid_text.get_text():
-                dom = [('rec_name', 'ilike',
-                        '%' + self.wid_text.get_text() + '%'), domain]
-            else:
-                dom = domain
-            ids = RPCExecute('model', model_name, 'search', dom,
-                    0, CONFIG['client.limit'], None, context=self.context)
-        except RPCException:
-            return False
+        value = self.wid_text.get_text().decode('utf-8')
 
         def callback(result):
             if result:
@@ -351,11 +323,11 @@ class WinForm(NoModal):
                 self.screen.display(res_id=ids[0])
             self.screen.set_cursor()
             self.wid_text.set_text('')
-        if len(ids) != 1:
-            WinSearch(model_name, callback, sel_multi=True,
-                ids=ids, context=self.context, domain=domain)
-        else:
-            callback([(i, None) for i in ids])
+
+        win = WinSearch(model_name, callback, sel_multi=True,
+            context=self.context, domain=domain)
+        win.screen.search_filter(quote(value))
+        win.show()
 
     def _sig_label(self, screen, signal_data):
         name = '_'
@@ -388,9 +360,11 @@ class WinForm(NoModal):
 
     def activate_save(self, *args):
         modified = self.screen.modified()
-        self.but_ok.props.sensitive = modified
+        # Keep sensible as change could have been trigger by a Many2One edition
+        sensitive = modified or self.but_ok.props.sensitive
+        self.but_ok.props.sensitive = sensitive
         self.win.set_default_response(
-            gtk.RESPONSE_OK if modified else gtk.RESPONSE_CANCEL)
+            gtk.RESPONSE_OK if sensitive else gtk.RESPONSE_CANCEL)
 
     def close(self, widget):
         widget.emit_stop_by_name('close')
@@ -422,9 +396,12 @@ class WinForm(NoModal):
                             if record:
                                 validate = record.pre_validate()
             if not validate:
+                self.message_info(self.screen.invalid_message(),
+                    gtk.MESSAGE_ERROR)
                 self.screen.set_cursor()
                 self.screen.display()
                 return
+            self.message_info()
             if response_id == gtk.RESPONSE_ACCEPT:
                 self.new()
                 return

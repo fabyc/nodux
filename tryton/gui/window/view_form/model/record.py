@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import tryton.rpc as rpc
 from tryton.signal_event import SignalEvent
 import tryton.common as common
@@ -31,6 +31,7 @@ class Record(SignalEvent):
         self.modified_fields = {}
         self._timestamp = None
         self.attachment_count = -1
+        self.unread_note = -1
         self.next = {}  # Used in Group list
         self.value = {}
         self.autocompletion = {}
@@ -270,6 +271,7 @@ class Record(SignalEvent):
     def cancel(self):
         self._loaded.clear()
         self.modified_fields.clear()
+        self._timestamp = None
 
     def get_timestamp(self):
         result = {self.model_name + ',' + str(self.id): self._timestamp}
@@ -312,8 +314,7 @@ class Record(SignalEvent):
                             [self.id], value, context=context)
                     except RPCException:
                         return False
-            self._loaded.clear()
-            self.modified_fields = {}
+            self.cancel()
             if force_reload:
                 self.reload()
             if self.group:
@@ -397,18 +398,19 @@ class Record(SignalEvent):
         return res
 
     def _get_invalid_fields(self):
-        res = []
+        fields = {}
         for fname, field in self.group.fields.iteritems():
-            if not field.get_state_attrs(self).get('valid', True):
-                res.append((fname, field.attrs['string']))
-        return dict(res)
+            invalid = field.get_state_attrs(self).get('invalid')
+            if invalid:
+                fields[fname] = invalid
+        return fields
 
     invalid_fields = property(_get_invalid_fields)
 
     def context_get(self):
         return self.group.context
 
-    def set_default(self, val, signal=True):
+    def set_default(self, val, signal=True, validate=True):
         fieldnames = []
         for fieldname, value in val.items():
             if fieldname not in self.group.fields:
@@ -427,7 +429,8 @@ class Record(SignalEvent):
             fieldnames.append(fieldname)
         self.on_change(fieldnames)
         self.on_change_with(fieldnames)
-        self.validate(softvalidation=True)
+        if validate:
+            self.validate(softvalidation=True)
         if signal:
             self.signal('record-changed')
 
@@ -435,7 +438,9 @@ class Record(SignalEvent):
         later = {}
         for fieldname, value in val.iteritems():
             if fieldname == '_timestamp':
-                self._timestamp = value
+                # Always keep the older timestamp
+                if not self._timestamp:
+                    self._timestamp = value
                 continue
             if fieldname not in self.group.fields:
                 if fieldname == 'rec_name':
@@ -460,12 +465,8 @@ class Record(SignalEvent):
             self.signal('record-changed')
 
     def set_on_change(self, values):
-        later = {}
         for fieldname, value in values.items():
             if fieldname not in self.group.fields:
-                continue
-            if isinstance(self.group.fields[fieldname], fields.O2MField):
-                later[fieldname] = value
                 continue
             if isinstance(self.group.fields[fieldname], (fields.M2OField,
                         fields.ReferenceField)):
@@ -475,14 +476,6 @@ class Record(SignalEvent):
                 elif field_rec_name in self.value:
                     del self.value[field_rec_name]
             self.group.fields[fieldname].set_on_change(self, value)
-        for fieldname, value in later.items():
-            # on change recursion checking is done only for x2many
-            field_x2many = self.group.fields[fieldname]
-            try:
-                field_x2many.in_on_change = True
-                field_x2many.set_on_change(self, value)
-            finally:
-                field_x2many.in_on_change = False
 
     def reload(self, fields=None):
         if self.id < 0:
@@ -624,6 +617,21 @@ class Record(SignalEvent):
             except RPCException:
                 return 0
         return self.attachment_count
+
+    def get_unread_note(self, reload=False):
+        if self.id < 0:
+            return 0
+        if self.unread_note < 0 or reload:
+            try:
+                self.unread_note = RPCExecute('model', 'ir.note',
+                    'search_count', [
+                        ('resource', '=',
+                            '%s,%s' % (self.model_name, self.id)),
+                        ('unread', '=', True),
+                        ], context=self.context_get())
+            except RPCException:
+                return 0
+        return self.unread_note
 
     def destroy(self):
         for v in self.value.itervalues():

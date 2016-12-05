@@ -1,35 +1,27 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 "Options"
 import ConfigParser
 import optparse
 import os
 import gettext
-from version import VERSION
 import logging
 import sys
 import locale
 import gtk
-import site
 
 from tryton.exceptions import TrytonError
+from tryton import __version__
 
 _ = gettext.gettext
-
-
-def get_home_dir():
-    if os.name == 'nt':
-        return os.path.join(os.environ['HOMEDRIVE'], os.environ['HOMEPATH']
-            ).decode(sys.getfilesystemencoding()).encode('utf-8')
-    return os.environ['HOME']
 
 
 def get_config_dir():
     if os.name == 'nt':
         return os.path.join(os.environ['APPDATA'], '.config', 'tryton',
-                VERSION.rsplit('.', 1)[0])
+                __version__.rsplit('.', 1)[0])
     return os.path.join(os.environ['HOME'], '.config', 'tryton',
-            VERSION.rsplit('.', 1)[0])
+            __version__.rsplit('.', 1)[0])
 if not os.path.isdir(get_config_dir()):
     os.makedirs(get_config_dir(), 0700)
 
@@ -38,10 +30,9 @@ class ConfigManager(object):
     "Config manager"
 
     def __init__(self):
-        short_version = '1.3' #short_version = '.'.join(VERSION.split('.', 2)[:2])
+        short_version = '4.0' #short_version = '.'.join(VERSION.split('.', 2)[:2])
         demo_server = 'demo%s.nodux.ec' % short_version # demo_server = 'demo%s.tryton.org' % short_version
         demo_database = 'demo%s' % short_version
-        form_tab = 'left' if os.name != 'nt' else 'top'
         self.defaults = {
             'login.profile': demo_server,
             'login.login': 'demo',
@@ -56,12 +47,11 @@ class ConfigManager(object):
             'client.default_height': 750,
             'client.modepda': False,
             'client.toolbar': 'default',
-            'client.form_tab': form_tab,
             'client.maximize': False,
             'client.save_width_height': True,
             'client.save_tree_state': True,
+            'client.fast_tabbing': True,
             'client.spellcheck': False,
-            'client.default_path': get_home_dir(),
             'client.lang': locale.getdefaultlocale()[0],
             'client.language_direction': 'ltr',
             'client.email': '',
@@ -79,7 +69,7 @@ class ConfigManager(object):
         self.arguments = []
 
     def parse(self):
-        parser = optparse.OptionParser(version=("Tryton %s" % VERSION),
+        parser = optparse.OptionParser(version=("Tryton %s" % __version__),
                 usage="Usage: %prog [options] [url]")
         parser.add_option("-c", "--config", dest="config",
                 help=_("specify alternate config file"))
@@ -173,27 +163,24 @@ class ConfigManager(object):
             self.defaults.get(key)))
 
 CONFIG = ConfigManager()
+CURRENT_DIR = unicode(os.path.dirname(__file__),
+    sys.getfilesystemencoding())
 if (os.name == 'nt' and hasattr(sys, 'frozen')
         and os.path.basename(sys.executable) == 'tryton.exe'):
     CURRENT_DIR = os.path.dirname(unicode(sys.executable,
         sys.getfilesystemencoding()))
-else:
-    CURRENT_DIR = os.path.abspath(os.path.normpath(os.path.join(
-        unicode(os.path.dirname(__file__), sys.getfilesystemencoding()),
-        '..')))
+elif (os.name == 'mac'
+        or (hasattr(os, 'uname') and os.uname()[0] == 'Darwin')):
+    resources = os.path.join(os.path.dirname(sys.argv[0]), '..', 'Resources')
+    if os.path.isdir(resources):
+        CURRENT_DIR = resources
 
-for dir in [CURRENT_DIR, getattr(site, 'USER_BASE', sys.prefix), sys.prefix]:
-    PIXMAPS_DIR = os.path.join(dir, 'share', 'pixmaps', 'tryton')
-    if os.path.isdir(PIXMAPS_DIR):
-        break
+PIXMAPS_DIR = os.path.join(CURRENT_DIR, 'data', 'pixmaps', 'tryton')
+if not os.path.isdir(PIXMAPS_DIR):
+    # do not import when frozen
+    import pkg_resources
+    PIXMAPS_DIR = pkg_resources.resource_filename(
+        'tryton', 'data/pixmaps/tryton')
 
 TRYTON_ICON = gtk.gdk.pixbuf_new_from_file(
-        os.path.join(PIXMAPS_DIR, 'tryton-icon.png').encode('utf-8'))
-
-
-def _data_dir():
-    data_dir = os.path.join(CURRENT_DIR, 'share', 'tryton')
-    if not os.path.isdir(data_dir):
-        data_dir = os.path.join(sys.prefix, 'share', 'tryton')
-    return data_dir
-DATA_DIR = _data_dir()
+    os.path.join(PIXMAPS_DIR, 'tryton-icon.png').encode('utf-8'))

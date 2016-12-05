@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 from record import Record
 from field import Field, M2OField, ReferenceField
 from tryton.signal_event import SignalEvent
@@ -191,7 +191,7 @@ class Group(SignalEvent, list):
         for id_ in ids:
             record = self.get(id_)
             if record and not record.modified:
-                record._loaded.clear()
+                record.cancel()
 
     def on_write_ids(self, ids):
         if not self.on_write:
@@ -381,7 +381,7 @@ class Group(SignalEvent, list):
             return None
         return self[self.current_idx]
 
-    def add_fields(self, fields, signal=True):
+    def add_fields(self, fields):
         to_add = {}
         for name, attr in fields.iteritems():
             if name not in self.fields:
@@ -405,7 +405,9 @@ class Group(SignalEvent, list):
             except RPCException:
                 return False
             for record in new:
-                record.set_default(values, signal=signal)
+                record.set_default(values, signal=False)
+            # Trigger signal only once with the last record
+            record.signal('record-changed')
 
     def get(self, id):
         'Return record with the id'

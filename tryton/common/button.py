@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 
 from tryton.common import ICONFACTORY
@@ -9,9 +9,7 @@ class Button(gtk.Button):
 
     def __init__(self, attrs=None):
         self.attrs = attrs or {}
-        label = attrs.get('string', '')
-        if '_' not in label:
-            label = '_' + label
+        label = '_' + attrs.get('string', '').replace('_', '__')
         super(Button, self).__init__(label=label, stock=None,
             use_underline=True)
         self._set_icon(attrs.get('icon'))
@@ -43,9 +41,10 @@ class Button(gtk.Button):
             self.show()
         self.set_sensitive(not states.get('readonly', False))
         self._set_icon(states.get('icon', self.attrs.get('icon')))
-        parent = record.parent if record else None
-        while parent:
-            if parent.modified:
-                self.set_sensitive(False)
-                break
-            parent = parent.parent
+        if self.attrs.get('type', 'class') == 'class':
+            parent = record.parent if record else None
+            while parent:
+                if parent.modified:
+                    self.set_sensitive(False)
+                    break
+                parent = parent.parent

@@ -1,14 +1,14 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 "Translate"
 import os
 import locale
 import gettext
-from version import PACKAGE
-from tryton.config import CURRENT_DIR
 import logging
 import gtk
 import sys
+
+from tryton.config import CURRENT_DIR
 
 _ = gettext.gettext
 
@@ -150,14 +150,15 @@ _LOCALE2WIN32 = {
     'zh_TW': 'Chinese_Taiwan',
 }
 
-_DATE_FORMAT = '%m/%d/%Y'
-
 
 def setlang(lang=None, locale_dict=None):
     "Set language"
-    locale_dir = os.path.join(CURRENT_DIR, 'share/locale')
+    locale_dir = os.path.join(CURRENT_DIR, 'data/locale')
     if not os.path.isdir(locale_dir):
-        locale_dir = os.path.join(sys.prefix, 'share/locale')
+        # do not import when frozen
+        import pkg_resources
+        locale_dir = pkg_resources.resource_filename(
+            'tryton', 'data/locale')
     if lang:
         encoding = locale.getdefaultlocale()[1]
         if not encoding:
@@ -184,15 +185,13 @@ def setlang(lang=None, locale_dict=None):
                     _('Unable to set locale %s') % lang2 + '.' + encoding)
 
     if os.path.isdir(locale_dir):
-        gettext.bindtextdomain(PACKAGE, locale_dir)
-    gettext.textdomain(PACKAGE)
+        gettext.bindtextdomain('tryton', locale_dir)
+    gettext.textdomain('tryton')
 
     if locale_dict:
         conv = locale.localeconv()
         for field in locale_dict.keys():
             if field == 'date':
-                global _DATE_FORMAT
-                _DATE_FORMAT = str(locale_dict[field]).replace('%-', '%')
                 continue
             conv[field] = locale_dict[field]
         locale.localeconv = lambda: conv
@@ -203,11 +202,3 @@ def set_language_direction(direction):
         gtk.widget_set_default_direction(gtk.TEXT_DIR_RTL)
     else:
         gtk.widget_set_default_direction(gtk.TEXT_DIR_LTR)
-
-
-def date_format():
-    '''
-    Return the locale date format
-    '''
-    global _DATE_FORMAT
-    return _DATE_FORMAT

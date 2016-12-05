@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 from shlex import shlex
 from types import GeneratorType
 import gettext
@@ -7,12 +7,13 @@ import locale
 import decimal
 from decimal import Decimal
 import datetime
-import time
 import io
 from collections import OrderedDict
 
-from tryton.translate import date_format
 from tryton.common import untimezoned_date, timezoned_date, datetime_strftime
+from tryton.common.datetime_ import date_parse
+from tryton.common.timedelta import parse as timedelta_parse
+from tryton.common.timedelta import format as timedelta_format
 from tryton.pyson import PYSONDecoder
 
 __all__ = ['DomainParser']
@@ -223,8 +224,10 @@ def test_split_target_value():
         assert split_target_value(field, value) == result
 
 
-def convert_value(field, value):
+def convert_value(field, value, context=None):
     "Convert value for field"
+    if context is None:
+        context = {}
 
     def convert_boolean():
         if isinstance(value, basestring):
@@ -259,30 +262,36 @@ def convert_value(field, value):
         return value
 
     def convert_datetime():
+        if not value:
+            return
+        format_ = context.get('date_format', '%X') + ' %x'
         try:
-            return untimezoned_date(datetime.datetime(*time.strptime(value,
-                        date_format() + ' ' + time_format(field))[:6]))
+            dt = date_parse(value, format_)
+            if dt.time() == datetime.time.min:
+                return dt
+            return untimezoned_date(dt)
         except ValueError:
-            try:
-                return datetime.datetime(*time.strptime(value,
-                        date_format())[:6])
-            except ValueError:
-                return
-        except TypeError:
             return
 
     def convert_date():
+        if not value:
+            return
+        format_ = context.get('date_format', '%x')
         try:
-            return datetime.date(*time.strptime(value, date_format())[:3])
+            return date_parse(value, format_).date()
         except (ValueError, TypeError):
             return
 
     def convert_time():
+        if not value:
+            return
         try:
-            return datetime.time(*time.strptime(value,
-                    time_format(field))[3:6])
+            return date_parse(value).time()
         except (ValueError, TypeError):
             return
+
+    def convert_timedelta():
+        return timedelta_parse(value, context.get(field.get('converter')))
 
     def convert_many2one():
         if value == '':
@@ -299,6 +308,7 @@ def convert_value(field, value):
         'datetime': convert_datetime,
         'date': convert_date,
         'time': convert_time,
+        'timedelta': convert_timedelta,
         'many2one': convert_many2one,
         }
     return converts.get(field['type'], lambda: value)()
@@ -426,8 +436,22 @@ def test_convert_time():
         assert convert_value(field, value) == result
 
 
-def format_value(field, value, target=None):
+def test_convert_timedelta():
+    field = {
+        'type': 'timedelta',
+        }
+    for value, result in [
+            ('1d 2:00', datetime.timedelta(days=1, hours=2)),
+            ('foo', datetime.timedelta()),
+            (None, None),
+            ]:
+        assert convert_value(field, value) == result
+
+
+def format_value(field, value, target=None, context=None):
     "Format value for field"
+    if context is None:
+        context = {}
 
     def format_boolean():
         return _('True') if value else _('False')
@@ -461,10 +485,10 @@ def format_value(field, value, target=None):
     def format_datetime():
         if not value:
             return ''
-        format_ = date_format() + ' ' + time_format(field)
+        format_ = context.get('date_format', '%x') + ' ' + time_format(field)
         if (not isinstance(value, datetime.datetime)
                 or value.time() == datetime.time.min):
-            format_ = date_format()
+            format_ = '%x'
             time = value
         else:
             time = timezoned_date(value)
@@ -473,12 +497,18 @@ def format_value(field, value, target=None):
     def format_date():
         if not value:
             return ''
-        return datetime_strftime(value, date_format())
+        format_ = context.get('date_format', '%x')
+        return datetime_strftime(value, format_)
 
     def format_time():
         if not value:
             return ''
         return datetime.time.strftime(value, time_format(field))
+
+    def format_timedelta():
+        if not value:
+            return ''
+        return timedelta_format(value, context.get(field.get('converter')))
 
     def format_many2one():
         if value is None:
@@ -495,10 +525,11 @@ def format_value(field, value, target=None):
         'datetime': format_datetime,
         'date': format_date,
         'time': format_time,
+        'timedelta': format_timedelta,
         'many2one': format_many2one,
         }
     if isinstance(value, (list, tuple)):
-        return ';'.join(format_value(field, x) for x in value)
+        return ';'.join(format_value(field, x, context=context) for x in value)
     return quote(converts.get(field['type'],
             lambda: value if value is not None else '')())
 
@@ -592,10 +623,10 @@ def test_format_datetime():
         'format': '"%H:%M:%S"',
         }
     for value, result in (
-            (datetime.date(2002, 12, 4), '12/04/2002'),
-            (datetime.datetime(2002, 12, 4), '12/04/2002'),
+            (datetime.date(2002, 12, 4), '12/04/02'),
+            (datetime.datetime(2002, 12, 4), '12/04/02'),
             (untimezoned_date(datetime.datetime(2002, 12, 4, 12, 30)),
-                '"12/04/2002 12:30:00"'),
+                '"12/04/02 12:30:00"'),
             (False, ''),
             (None, ''),
             ):
@@ -607,7 +638,7 @@ def test_format_date():
         'type': 'date',
         }
     for value, result in (
-            (datetime.date(2002, 12, 4), '12/04/2002'),
+            (datetime.date(2002, 12, 4), '12/04/02'),
             (False, ''),
             (None, ''),
             ):
@@ -624,6 +655,19 @@ def test_format_time():
             (False, ''),
             (None, ''),
             ):
+        assert format_value(field, value) == result
+
+
+def test_format_timedelta():
+    field = {
+        'type': 'timedelta',
+        }
+    for value, result in [
+            (datetime.timedelta(days=1, hours=2), '"1d 02:00"'),
+            (datetime.timedelta(), ''),
+            (None, ''),
+            ('', ''),
+            ]:
         assert format_value(field, value) == result
 
 
@@ -778,6 +822,8 @@ def test_operatorize():
     a = ('a', 'a', 'a')
     b = ('b', 'b', 'b')
     c = ('c', 'c', 'c')
+    null_ = ('d', None, 'x')
+    double_null_ = ('e', None, None)
     for value, result in (
             (['a'], ['a']),
             (['a', 'or', 'b'], [['OR', 'a', 'b']]),
@@ -803,6 +849,8 @@ def test_operatorize():
             (['a', iter(['b', 'or', 'c'])], ['a', [['OR', 'b', 'c']]]),
             ([a, iter([b, ('or',), c])], [a, [['OR', b, c]]]),
             (['a', iter(['b', 'or'])], ['a', [['OR', 'b']]]),
+            ([null_], [null_]),
+            ([null_, 'or', double_null_], [['OR', null_, double_null_]]),
             ):
         assert rlist(operatorize(iter(value))) == result
 
@@ -810,13 +858,14 @@ def test_operatorize():
 class DomainParser(object):
     "A parser for domain"
 
-    def __init__(self, fields):
+    def __init__(self, fields, context=None):
         self.fields = OrderedDict((name, f)
             for name, f in fields.iteritems()
             if f.get('searchable', True))
         self.strings = dict((f['string'].lower(), f)
             for f in fields.itervalues()
             if f.get('searchable', True))
+        self.context = context
 
     def parse(self, input_):
         "Return domain for the input string"
@@ -902,7 +951,7 @@ class DomainParser(object):
                     operator = '!'
                 else:
                     operator = ''
-            formatted_value = format_value(field, value, target)
+            formatted_value = format_value(field, value, target, self.context)
             if (operator in OPERATORS and
                     field['type'] in ('char', 'text', 'selection')
                     and value == ''):
@@ -1101,20 +1150,21 @@ class DomainParser(object):
                             'datetime', 'date', 'time'):
                         if value and '..' in value:
                             lvalue, rvalue = value.split('..', 1)
-                            lvalue = convert_value(field, lvalue)
-                            rvalue = convert_value(field, rvalue)
+                            lvalue = convert_value(field, lvalue, self.context)
+                            rvalue = convert_value(field, rvalue, self.context)
                             yield iter([
                                     (field_name, '>=', lvalue),
                                     (field_name, '<=', rvalue),
                                     ])
                             continue
                     if isinstance(value, list):
-                        value = [convert_value(field, v) for v in value]
+                        value = [convert_value(field, v, self.context)
+                            for v in value]
                         if field['type'] in ('many2one', 'one2many',
                                 'many2many', 'one2one'):
                             field_name += '.rec_name'
                     else:
-                        value = convert_value(field, value)
+                        value = convert_value(field, value, self.context)
                     if 'like' in operator:
                         value = likify(value)
                     if target:
@@ -1208,7 +1258,7 @@ def test_string():
     assert dom.string([]) == ''
     assert dom.string([('surname', 'ilike', '%Doe%')]) == '"(Sur)Name": Doe'
     assert dom.string([('date', '>=', datetime.date(2012, 10, 24))]) == \
-        'Date: >=10/24/2012'
+        'Date: >=10/24/12'
     assert dom.string([('selection', '=', '')]) == 'Selection: '
     assert dom.string([('selection', '=', None)]) == 'Selection: '
     assert dom.string([('selection', '!=', '')]) == 'Selection: !""'

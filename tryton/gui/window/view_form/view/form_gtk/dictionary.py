@@ -12,12 +12,14 @@ from decimal import Decimal
 from .widget import Widget
 from tryton.config import CONFIG
 from tryton.gui.window.win_search import WinSearch
-from tryton.common import RPCExecute, RPCException, timezoned_date, \
-    datetime_strftime, Tooltips
-from tryton.common.date_widget import DateEntry
+from tryton.common import RPCExecute, RPCException, Tooltips, \
+    timezoned_date, untimezoned_date
 from tryton.common.placeholder_entry import PlaceholderEntry
 from tryton.common.selection import selection_shortcuts
-from tryton.translate import date_format
+from tryton.common.completion import get_completion, update_completion
+from tryton.common.datetime_ import Date, DateTime
+from tryton.common.domain_parser import quote
+from tryton.common.entry_position import reset_position
 
 _ = gettext.gettext
 
@@ -46,7 +48,8 @@ class DictEntry(object):
         return self.widget.get_text()
 
     def set_value(self, value):
-        return self.widget.set_text(value or '')
+        self.widget.set_text(value or '')
+        reset_position(self.widget)
 
     def set_readonly(self, readonly):
         self.widget.set_editable(not readonly)
@@ -130,6 +133,7 @@ class DictSelectionEntry(DictEntry):
     def set_value(self, value):
         values = dict(self.definition['selection'])
         self.widget.child.set_text(values.get(value, ''))
+        reset_position(self.widget.child)
 
     def set_readonly(self, readonly):
         self.widget.set_sensitive(not readonly)
@@ -173,6 +177,7 @@ class DictIntegerEntry(DictEntry):
         else:
             txt_val = ''
         self.widget.set_text(txt_val)
+        reset_position(self.widget)
 
 
 class DictFloatEntry(DictIntegerEntry):
@@ -229,6 +234,7 @@ class DictFloatEntry(DictIntegerEntry):
             txt_val = ''
         self.widget.set_width_chars(sum(digits))
         self.widget.set_text(txt_val)
+        reset_position(self.widget)
 
 
 class DictNumericEntry(DictFloatEntry):
@@ -248,50 +254,45 @@ class DictDateTimeEntry(DictEntry):
     fill = False
 
     def create_widget(self):
-        widget = DateEntry('')
-        widget.set_format(self.get_format())
+        widget = DateTime()
+        record = self.parent_widget.record
+        field = self.parent_widget.field
+        if record and field:
+            format_ = field.time_format(record)
+            widget.props.format = format_
         widget.connect('key_press_event', self.parent_widget.send_modified)
         widget.connect('focus-out-event', lambda w, e:
             self.parent_widget._focus_out())
         return widget
 
-    def modified(self, value):
-        if value.get(self.name):
-            text = datetime_strftime(timezoned_date(value[self.name]),
-                self.get_format())
-        else:
-            text = ''
-        return self.widget.compute_date(self.widget.get_text()) != text
-
-    def get_format(self):
-        return date_format() + ' %H:%M:%S'  # got to find a way
-
     def get_value(self):
-        return self.widget.date_get()
+        return untimezoned_date(self.widget.props.value)
 
     def set_value(self, value):
-        self.widget.date_set(value)
-        txt = self.widget.get_text()
-        if txt:
-            if len(txt) > self.widget.get_width_chars():
-                self.widget.set_width_chars(len(txt))
+        self.widget.props.value = timezoned_date(value)
 
 
-class DictDateEntry(DictDateTimeEntry):
+class DictDateEntry(DictEntry):
+    expand = False
+    fill = False
 
-    def modified(self, value):
-        if value.get(self.name):
-            text = datetime_strftime(value[self.name], self.get_format())
-        else:
-            text = ''
-        return self.widget.compute_date(self.widget.get_text()) != text
-
-    def get_format(self):
-        return date_format()
+    def create_widget(self):
+        widget = Date()
+        record = self.parent_widget.record
+        field = self.parent_widget.field
+        if record and field:
+            format_ = field.date_format(record)
+            widget.props.format = format_
+        widget.connect('key_press_event', self.parent_widget.send_modified)
+        widget.connect('focus-out-event', lambda w, e:
+            self.parent_widget._focus_out())
+        return widget
 
     def get_value(self):
-        dt = super(DictDateEntry, self).get_value()
-        return dt.date() if dt else None
+        return self.widget.props.value
+
+    def set_value(self, value):
+        self.widget.props.value = value
 
 
 DICT_ENTRIES = {
@@ -335,6 +336,16 @@ class DictWidget(Widget):
         self.wid_text.props.width_chars = 13
         self.wid_text.connect('activate', self._sig_activate)
         hbox.pack_start(self.wid_text, expand=True, fill=True)
+
+        if int(self.attrs.get('completion', 1)):
+            self.wid_completion = get_completion(search=False, create=False)
+            self.wid_completion.connect('match-selected',
+                self._completion_match_selected)
+            self.wid_text.set_completion(self.wid_completion)
+            self.wid_text.connect('changed', self._update_completion)
+        else:
+            self.wid_completion = None
+
         self.but_add = gtk.Button()
         self.but_add.connect('clicked', self._sig_add)
         img_add = gtk.Image()
@@ -374,22 +385,33 @@ class DictWidget(Widget):
 
         def callback(result):
             if result:
-                self.send_modified()
-                try:
-                    new_fields = RPCExecute('model', self.schema_model,
-                        'get_keys', [r[0] for r in result],
-                        context=context)
-                except RPCException:
-                    new_fields = []
-                for new_field in new_fields:
-                    if new_field['name'] not in self.fields:
-                        self.keys[new_field['name']] = new_field
-                        self.add_line(new_field['name'])
+                self.add_new_keys([r[0] for r in result])
             self.wid_text.set_text('')
 
         win = WinSearch(self.schema_model, callback, sel_multi=True,
             context=context, domain=domain, new=False)
-        win.screen.search_filter(value)
+        win.screen.search_filter(quote(value))
+        win.show()
+
+    def add_new_keys(self, ids):
+        context = self.field.context_get(self.record)
+        self.send_modified()
+        try:
+            new_fields = RPCExecute('model', self.schema_model,
+                'get_keys', ids, context=context)
+        except RPCException:
+            new_fields = []
+        focus = False
+        for new_field in new_fields:
+            if new_field['name'] not in self.fields:
+                self.keys[new_field['name']] = new_field
+                self.add_line(new_field['name'])
+                if not focus:
+                    # Use idle add because it can be called from the callback
+                    # of WinSearch while the popup is still there
+                    gobject.idle_add(
+                        self.fields[new_field['name']].widget.grab_focus)
+                    focus = True
 
     def _sig_remove(self, button, key, modified=True):
         del self.fields[key]
@@ -422,7 +444,7 @@ class DictWidget(Widget):
         self._set_button_sensitive()
         for widget in self.fields.values():
             widget.set_readonly(readonly)
-        self.wid_text.set_editable(not readonly)
+        self.wid_text.set_sensitive(not readonly)
 
     def _set_button_sensitive(self):
         self.but_add.set_sensitive(bool(
@@ -454,6 +476,7 @@ class DictWidget(Widget):
         label.set_alignment(1., .5)
         self.table.attach(label, 0, 1, n_rows - 1, n_rows,
             xoptions=gtk.FILL, yoptions=False, xpadding=2)
+        label.set_mnemonic_widget(field.widget)
         label.show()
         self.table.attach(alignment, 1, 2, n_rows - 1, n_rows,
             xoptions=gtk.FILL | gtk.EXPAND, yoptions=False, xpadding=2)
@@ -516,3 +539,21 @@ class DictWidget(Widget):
             self._sig_remove(None, key, modified=False)
 
         self._set_button_sensitive()
+
+    def _completion_match_selected(self, completion, model, iter_):
+        record_id, = model.get(iter_, 1)
+        self.add_new_keys([record_id])
+        self.wid_text.set_text('')
+
+        completion_model = self.wid_completion.get_model()
+        completion_model.clear()
+        completion_model.search_text = self.wid_text.get_text()
+        return True
+
+    def _update_completion(self, widget):
+        if not self.wid_text.get_editable():
+            return
+        if not self.record:
+            return
+        update_completion(self.wid_text, self.record, self.field,
+            self.schema_model)

@@ -1,44 +1,57 @@
-Version 3.4.14 - 2016-11-06
+Version 4.0.5 - 2016-10-02
 * Bug fixes (see mercurial logs for details)
 
-Version 3.4.13 - 2016-10-02
+Version 4.0.4 - 2016-09-03
 * Bug fixes (see mercurial logs for details)
 
-Version 3.4.12 - 2016-09-03
+Version 4.0.3 - 2016-08-02
 * Bug fixes (see mercurial logs for details)
 
-Version 3.4.11 - 2016-08-02
+Version 4.0.2 - 2016-07-04
 * Bug fixes (see mercurial logs for details)
 
-Version 3.4.10 - 2016-07-04
+Version 4.0.1 - 2016-05-11
 * Bug fixes (see mercurial logs for details)
 
-Version 3.4.9 - 2016-03-14
+Version 4.0.0 - 2016-05-02
 * Bug fixes (see mercurial logs for details)
+* Improvement of charts design
+* Timedelta uses 30 days for month
+* Add all available encoding for import/export
+* Add CSV parameters to export window
+* Add DnD on import window
+* Manage context model of ir.action.act_window
+* Add Note
+* Manage view_ids on tree view
+* Use Apple key for copy/past of list
 
-Version 3.4.8 - 2016-02-06
+Version 3.8.0 - 2015-11-02
 * Bug fixes (see mercurial logs for details)
+* Use italic labels for editable fields
+* Escape '_' in button string and page string
+* Export selected records only
+* Use HTML for RichText widget
+* Change Progressbar to work with float between 0 and 1
+* Add Fast Tabbing option
+* Remove colors on widgets
+* Bold label of required fields
+* Explicit error message for invalid record
+* Add reversed operators to PYSON expressions
 
-Version 3.4.7 - 2016-01-11
+Version 3.6.0 - 2015-04-20
 * Bug fixes (see mercurial logs for details)
-
-Version 3.4.6 - 2015-11-09
-* Bug fixes (see mercurial logs for details)
-
-Version 3.4.5 - 2015-09-08
-* Bug fixes (see mercurial logs for details)
-
-Version 3.4.4 - 2015-05-19
-* Bug fixes (see mercurial logs for details)
-
-Version 3.4.3 - 2015-03-30
-* Bug fixes (see mercurial logs for details)
-
-Version 3.4.2 - 2015-02-16
-* Bug fixes (see mercurial logs for details)
-
-Version 3.4.1 - 2014-12-03
-* Bug fixes (see mercurial logs for details)
+* Hide columns containing always the same value
+* Remove Tabs Position option
+* Manage product attribute
+* Remove float_time widget
+* Add TimeDelta field
+* Improve date/time widgets
+* Remove datetime widget on list/tree view
+* Allow to put many times the same field on tree view
+* Add search completion on dictionary widget
+* Merge host and port field in profile editor
+* New color scheme for graph
+* Replace img_{width,height} by width and height attributes
 
 Version 3.4.0 - 2014-10-20
 * Bug fixes (see mercurial logs for details)

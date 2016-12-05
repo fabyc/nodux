@@ -1,13 +1,14 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gettext
 
 import gobject
 import gtk
 from .widget import Widget, TranslateMixin
 from tryton.common import Tooltips
-from tryton.common.entry_position import manage_entry_position
+from tryton.common.entry_position import reset_position
 from tryton.common.selection import PopdownMixin, selection_shortcuts
+from tryton.config import CONFIG
 
 _ = gettext.gettext
 
@@ -29,18 +30,17 @@ class Char(Widget, TranslateMixin, PopdownMixin):
         else:
             self.entry = gtk.Entry()
             focus_entry = self.entry
+        self.mnemonic_widget = focus_entry
 
         focus_entry.set_property('activates_default', True)
         focus_entry.connect('activate', self.sig_activate)
         focus_entry.connect('focus-out-event', lambda x, y: self._focus_out())
         focus_entry.connect('key-press-event', self.send_modified)
-        manage_entry_position(focus_entry)
         expand, fill = True, True
         if attrs.get('size'):
             expand, fill = False, False
         self.widget.pack_start(self.entry, expand=expand, fill=fill)
 
-        self.button = None
         if attrs.get('translate'):
             self.entry.set_icon_from_stock(gtk.ENTRY_ICON_SECONDARY,
                 'tryton-locale')
@@ -58,6 +58,7 @@ class Char(Widget, TranslateMixin, PopdownMixin):
     @staticmethod
     def translate_widget_set(widget, value):
         widget.set_text(value or '')
+        reset_position(widget)
 
     @staticmethod
     def translate_widget_get(widget):
@@ -76,11 +77,6 @@ class Char(Widget, TranslateMixin, PopdownMixin):
         if not combobox.get_child().has_focus():
             # Must be deferred because it triggers a display of the form
             gobject.idle_add(focus_out)
-
-    def _color_widget(self):
-        if self.autocomplete:
-            return self.entry.get_child()
-        return self.entry
 
     @property
     def modified(self):
@@ -128,10 +124,13 @@ class Char(Widget, TranslateMixin, PopdownMixin):
 
         if not self.autocomplete:
             self.entry.set_text(value)
+            reset_position(self.entry)
         else:
             self.entry.handler_block_by_func(self.changed)
             if not self.set_popdown_value(self.entry, value) or not value:
-                self.entry.get_child().set_text(value)
+                child = self.entry.get_child()
+                child.set_text(value)
+                reset_position(child)
             self.entry.handler_unblock_by_func(self.changed)
 
     def _readonly_set(self, value):
@@ -142,12 +141,10 @@ class Char(Widget, TranslateMixin, PopdownMixin):
             self.entry.set_button_sensitivity(sensitivity[value])
         else:
             self.entry.set_editable(not value)
-        if self.button:
-            self.button.set_sensitive(not value)
-        if value:
+        if value and CONFIG['client.fast_tabbing']:
             self.widget.set_focus_chain([])
         else:
-            self.widget.set_focus_chain([self.entry])
+            self.widget.unset_focus_chain()
 
 
 class Password(Char):
@@ -165,10 +162,10 @@ class Password(Char):
         super(Char, self)._readonly_set(value)
         self.entry.set_editable(not value)
         self.visibility_checkbox.props.visible = not value
-        if value:
+        if value and CONFIG['client.fast_tabbing']:
             self.widget.set_focus_chain([])
         else:
-            self.widget.set_focus_chain([self.entry, self.visibility_checkbox])
+            self.widget.unset_focus_chain()
 
     def toggle_visibility(self, button):
         self.entry.props.visibility = not self.entry.props.visibility

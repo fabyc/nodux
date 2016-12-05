@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 
 import ConfigParser
 import gtk
@@ -7,7 +7,7 @@ import gobject
 import os
 import gettext
 
-from tryton.version import VERSION
+from tryton import __version__
 import tryton.common as common
 from tryton.config import CONFIG, TRYTON_ICON, PIXMAPS_DIR, get_config_dir
 import tryton.rpc as rpc
@@ -67,25 +67,16 @@ class DBListEditor(object):
         table = gtk.Table(4, 2, homogeneous=False)
         table.set_row_spacings(3)
         table.set_col_spacings(3)
-        host = gtk.Label(_(u'Hostname:'))
+        host = gtk.Label(_(u'Host:'))
         host.set_alignment(1, 0.5)
         host.set_padding(3, 3)
         self.host_entry = gtk.Entry()
         self.host_entry.connect('focus-out-event', self.display_dbwidget)
         self.host_entry.connect('changed', self.update_profiles, 'host')
         self.host_entry.set_activates_default(True)
+        host.set_mnemonic_widget(self.host_entry)
         table.attach(host, 0, 1, 1, 2, yoptions=False, xoptions=gtk.FILL)
         table.attach(self.host_entry, 1, 2, 1, 2, yoptions=False)
-        port = gtk.Label(_(u'Port:'))
-        port.set_alignment(1, 0.5)
-        port.set_padding(3, 3)
-        self.port_entry = gtk.Entry()
-        self.port_entry.connect('focus-out-event', self.display_dbwidget)
-        self.port_entry.connect('changed', self.update_profiles, 'port')
-        self.port_entry.connect('insert_text', self.insert_text_port)
-        self.port_entry.set_activates_default(True)
-        table.attach(port, 0, 1, 2, 3, yoptions=False, xoptions=gtk.FILL)
-        table.attach(self.port_entry, 1, 2, 2, 3, yoptions=False)
         database = gtk.Label(_(u'Database:'))
         database.set_alignment(1, 0.5)
         database.set_padding(3, 3)
@@ -123,17 +114,18 @@ class DBListEditor(object):
             cwidth, cheight = child.size_request()
             width, height = max(width, cwidth), max(height, cheight)
         db_box.set_size_request(width, height)
-        table.attach(database, 0, 1, 3, 4, yoptions=False, xoptions=gtk.FILL)
-        table.attach(db_box, 1, 2, 3, 4, yoptions=False)
+        table.attach(database, 0, 1, 2, 3, yoptions=False, xoptions=gtk.FILL)
+        table.attach(db_box, 1, 2, 2, 3, yoptions=False)
         username = gtk.Label(_(u'Username:'))
         username.set_alignment(1, 0.5)
         username.set_padding(3, 3)
         self.username_entry = gtk.Entry()
         self.username_entry.connect('changed', self.update_profiles,
             'username')
+        username.set_mnemonic_widget(self.username_entry)
         self.username_entry.set_activates_default(True)
-        table.attach(username, 0, 1, 4, 5, yoptions=False, xoptions=gtk.FILL)
-        table.attach(self.username_entry, 1, 2, 4, 5, yoptions=False)
+        table.attach(username, 0, 1, 3, 4, yoptions=False, xoptions=gtk.FILL)
+        table.attach(self.username_entry, 1, 2, 3, 4, yoptions=False)
         hpaned.add2(table)
         hpaned.set_position(250)
 
@@ -171,13 +163,10 @@ class DBListEditor(object):
         return {'name': model[selection][0], 'iter': selection}
 
     def clear_entries(self):
-        for entryname in ('host', 'port', 'database', 'username'):
+        for entryname in ('host', 'database', 'username'):
             entry = getattr(self, '%s_entry' % entryname)
             entry.handler_block_by_func(self.update_profiles)
-            if entryname == 'port':
-                entry.set_text('8000')
-            else:
-                entry.set_text('')
+            entry.set_text('')
             entry.handler_unblock_by_func(self.update_profiles)
         self.current_database = None
         self.database_combo.set_active(-1)
@@ -218,7 +207,7 @@ class DBListEditor(object):
             selection = treeview.get_selection()
             selection.select_iter(self.old_profile['iter'])
             return
-        fields = ('host', 'port', 'database', 'username')
+        fields = ('host', 'database', 'username')
         for field in fields:
             entry = getattr(self, '%s_entry' % field)
             try:
@@ -274,14 +263,15 @@ class DBListEditor(object):
         if not selection:
             return
         active = all(self.profiles.has_option(profile_name, option)
-            for option in ('host', 'port', 'database'))
+            for option in ('host', 'database'))
         model[selection][1] = active
 
     def display_dbwidget(self, entry, event, dbname=None):
-        host = self.host_entry.get_text()
-        port = self.port_entry.get_text()
-        if not (host and port):
+        netloc = self.host_entry.get_text()
+        host = common.get_hostname(netloc)
+        if not host:
             return
+        port = common.get_port(netloc)
         if (host, port, self.current_profile['name']) == self.db_cache:
             return
         if self.updating_db:
@@ -289,14 +279,13 @@ class DBListEditor(object):
         if dbname is None:
             dbname = self.current_database
 
-        dbprogress = common.DBProgress(host, int(port))
+        dbprogress = common.DBProgress(host, port)
         self.hide_database_info()
         self.add_button.set_sensitive(False)
         self.remove_button.set_sensitive(False)
         self.ok_button.set_sensitive(False)
         self.cell.set_property('editable', False)
         self.host_entry.set_sensitive(False)
-        self.port_entry.set_sensitive(False)
         self.updating_db = True
 
         def callback(dbs):
@@ -323,7 +312,6 @@ class DBListEditor(object):
             self.ok_button.set_sensitive(True)
             self.cell.set_property('editable', True)
             self.host_entry.set_sensitive(True)
-            self.port_entry.set_sensitive(True)
 
         dbprogress.update(self.database_combo,
             self.database_progressbar, callback, dbname)
@@ -331,8 +319,9 @@ class DBListEditor(object):
     def db_create(self, button):
         if not self.current_profile['name']:
             return
-        host = self.host_entry.get_text()
-        port = int(self.port_entry.get_text())
+        netloc = self.host_entry.get_text()
+        host = common.get_hostname(netloc)
+        port = common.get_port(netloc)
         dia = DBCreate(host, port)
         dbname = dia.run()
         self.db_cache = None
@@ -439,6 +428,7 @@ class DBLogin(object):
         self.entry_host.connect_after('focus-out-event',
             self.clear_profile_combo)
         self.entry_host.set_activates_default(True)
+        self.label_host.set_mnemonic_widget(self.entry_host)
         self.table_main.attach(self.label_host, 0, 1, 4, 5, xoptions=gtk.FILL)
         self.table_main.attach(self.entry_host, 1, 3, 4, 5)
         self.label_database = gtk.Label(_('Database:'))
@@ -449,6 +439,7 @@ class DBLogin(object):
         self.entry_database.connect_after('focus-out-event',
             self.clear_profile_combo)
         self.entry_database.set_activates_default(True)
+        self.label_database.set_mnemonic_widget(self.entry_database)
         self.table_main.attach(self.label_database, 0, 1, 5, 6,
             xoptions=gtk.FILL)
         self.table_main.attach(self.entry_database, 1, 3, 5, 6)
@@ -463,17 +454,19 @@ class DBLogin(object):
         label_password.set_justify(gtk.JUSTIFY_RIGHT)
         label_password.set_alignment(1, 0.5)
         label_password.set_padding(3, 3)
+        label_password.set_mnemonic_widget(self.entry_password)
         self.table_main.attach(label_password, 0, 1, 7, 8, xoptions=gtk.FILL)
         label_username = gtk.Label(str=_("User name:"))
         label_username.set_alignment(1, 0.5)
         label_username.set_padding(3, 3)
+        label_username.set_mnemonic_widget(self.entry_login)
         self.table_main.attach(label_username, 0, 1, 6, 7, xoptions=gtk.FILL)
 
         # Profile informations
         self.profile_cfg = os.path.join(get_config_dir(), 'profiles.cfg')
         self.profiles = ConfigParser.SafeConfigParser({'port': '8000'})
         if not os.path.exists(self.profile_cfg):
-            short_version = '.'.join(VERSION.split('.', 2)[:2])
+            short_version = '.'.join(__version__.split('.', 2)[:2])
             name = 'demo%s.tryton.org' % short_version
             self.profiles.add_section(name)
             self.profiles.set(name, 'host', name)
@@ -516,10 +509,7 @@ class DBLogin(object):
         except ConfigParser.NoOptionError:
             username = ''
         host = self.profiles.get(profile, 'host')
-        if ':' in host:
-            host = '[%s]' % host
-        port = self.profiles.get(profile, 'port')
-        self.entry_host.set_text('%s:%s' % (host, port))
+        self.entry_host.set_text('%s' % host)
         self.entry_database.set_text(self.profiles.get(profile, 'database'))
         if username:
             self.entry_login.set_text(username)
@@ -529,19 +519,17 @@ class DBLogin(object):
     def clear_profile_combo(self, entry, event):
         netloc = self.entry_host.get_text()
         host = common.get_hostname(netloc)
-        try:
-            port = str(common.get_port(netloc))
-        except ValueError:
-            host = ''
-            port = ''
+        port = common.get_port(netloc)
         database = self.entry_database.get_text().strip()
         for idx, profile_info in enumerate(self.profile_store):
             if not profile_info[1]:
                 continue
             profile = profile_info[0]
-            if (host == self.profiles.get(profile, 'host')
-                    and port == self.profiles.get(profile, 'port')
-                    and database == self.profiles.get(profile, 'database')):
+            profile_host = self.profiles.get(profile, 'host')
+            profile_db = self.profiles.get(profile, 'database')
+            if (host == common.get_hostname(profile_host)
+                    and port == common.get_port(profile_host)
+                    and database == profile_db):
                 break
         else:
             idx = -1
@@ -606,10 +594,7 @@ class DBLogin(object):
                 CONFIG['login.profile'] = profile
             netloc = self.entry_host.get_text()
             host = common.get_hostname(netloc)
-            try:
-                port = common.get_port(netloc)
-            except ValueError:
-                continue
+            port = common.get_port(netloc)
             try:
                 if not common.test_server_version(host, port):
                     common.warning('',

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 import gettext
 import webbrowser
 from tryton.config import TRYTON_ICON
-from tryton.version import VERSION, WEBSITE
 from tryton.common import get_toplevel_window
+from tryton import __version__
 
 COPYRIGHT = '''\
 Copyright (C) 2010-2011 Nicolas Évrard.
@@ -719,10 +719,10 @@ class About(object):
         self.win = gtk.AboutDialog()
         self.win.set_transient_for(parent)
         self.win.set_name('Nodux')
-        self.win.set_version('1.3.4.15')
+        self.win.set_version('4.0.6.0')
         #self.win.set_copyright(COPYRIGHT)
         self.win.set_license('Licencia Nodux')
-        self.win.set_website('http://nodux.ec')
+        self.win.set_website('http://nodux.ec/')
         #self.win.set_authors(AUTHORS)
         self.win.set_logo(TRYTON_ICON)
 

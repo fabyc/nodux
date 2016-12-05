@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 import gettext
 import os
@@ -18,9 +18,8 @@ class Tips(object):
 
 
 '''),
-#            _(
-#u'''<b>Do you know Triton, one of the namesakes for our project?</b>
-
+#            _(u'''<b>Do you know Triton, one of the namesakes for our project?</b>
+#
 #Triton (pronounced /ˈtraɪtən/ TRYE-tən, or as in Greek Τρίτων) is the
 #largest moon of the planet Neptune, discovered on October 10, 1846
 #by William Lassell. It is the only large moon in the Solar System
@@ -48,7 +47,7 @@ You can save any graphs in PNG file with right-click on it.
         self.win.set_position(gtk.WIN_POS_CENTER_ON_PARENT)
         self.win.set_icon(TRYTON_ICON)
         self.win.set_has_separator(True)
-        self.win.set_size_request(500, 400)
+        self.win.set_default_size(500, 400)
 
         self.win.add_button(gtk.STOCK_CLOSE, gtk.RESPONSE_CLOSE)
         self.win.set_default_response(gtk.RESPONSE_CLOSE)

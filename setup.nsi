@@ -41,7 +41,7 @@ Var STARTMENU_FOLDER
 
 ;Pages
 
-!define MUI_ICON "share\pixmaps\tryton\tryton.ico"
+!define MUI_ICON "tryton\data\pixmaps\tryton\tryton.ico"
 !define MUI_LICENSEPAGE_TEXT_BOTTOM "$(LicenseText)"
 !define MUI_LICENSEPAGE_BUTTON "$(LicenseNext)"
 
@@ -98,7 +98,6 @@ SectionIn 1 2 RO
     File "INSTALL"
     File "LICENSE"
     File "README"
-    File "TODO"
     File "CHANGELOG"
 
     SetOutPath "$INSTDIR\doc"

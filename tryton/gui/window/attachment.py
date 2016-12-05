@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 "Attachment"
 import os
 import urllib
@@ -22,10 +22,9 @@ class Attachment(WinForm):
             ('resource', '=', self.resource),
             ], mode=['tree', 'form'], context=context,
             exclude_field='resource')
-        screen.search_filter()
-        screen.parent = record
         super(Attachment, self).__init__(screen, self.callback,
             view_type='tree')
+        screen.search_filter()
 
     def destroy(self):
         self.prev_view.save_width_height()

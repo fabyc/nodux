@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 from .widget import Widget, TranslateMixin
 from tryton.config import CONFIG
@@ -23,10 +23,7 @@ class TextBox(Widget, TranslateMixin):
         self.scrolledwindow.set_shadow_type(gtk.SHADOW_ETCHED_IN)
         self.scrolledwindow.set_size_request(-1, 80)
 
-        self.textview = gtk.TextView()
-        self.textview.set_wrap_mode(gtk.WRAP_WORD)
-        #TODO better tab solution
-        self.textview.set_accepts_tab(False)
+        self.textview = self.mnemonic_widget = self._get_textview()
         self.textview.connect('focus-out-event',
             lambda x, y: self._focus_out())
         self.textview.connect('key-press-event', self.send_modified)
@@ -43,6 +40,17 @@ class TextBox(Widget, TranslateMixin):
             self.button = self.translate_button()
             hbox.pack_start(self.button, False, False)
 
+    def _get_textview(self):
+        if self.attrs.get('size'):
+            textbuffer = TextBufferLimitSize(int(self.attrs['size']))
+            textview = gtk.TextView(textbuffer)
+        else:
+            textview = gtk.TextView()
+        textview.set_wrap_mode(gtk.WRAP_WORD)
+        # TODO better tab solution
+        textview.set_accepts_tab(False)
+        return textview
+
     def translate_widget(self):
         scrolledwindow = gtk.ScrolledWindow()
         scrolledwindow.set_policy(gtk.POLICY_AUTOMATIC,
@@ -50,10 +58,7 @@ class TextBox(Widget, TranslateMixin):
         scrolledwindow.set_shadow_type(gtk.SHADOW_ETCHED_IN)
         scrolledwindow.set_size_request(-1, 80)
 
-        textview = gtk.TextView()
-        textview.set_wrap_mode(gtk.WRAP_WORD)
-        textview.set_accepts_tab(False)
-
+        textview = self._get_textview()
         scrolledwindow.add(textview)
         return scrolledwindow
 
@@ -82,10 +87,10 @@ class TextBox(Widget, TranslateMixin):
         self.textview.set_editable(not value)
         if self.button:
             self.button.set_sensitive(not value)
-        if value:
+        if value and CONFIG['client.fast_tabbing']:
             self.widget.set_focus_chain([])
         else:
-            self.widget.set_focus_chain([self.textview])
+            self.widget.unset_focus_chain()
         if gtkspell:
             spell = None
             try:
@@ -112,9 +117,6 @@ class TextBox(Widget, TranslateMixin):
             elif spell:
                 spell.detach()
                 del spell
-
-    def _color_widget(self):
-        return self.textview
 
     @property
     def modified(self):
@@ -170,3 +172,20 @@ class TextBox(Widget, TranslateMixin):
             elif spell:
                 spell.detach()
                 del spell
+
+
+class TextBufferLimitSize(gtk.TextBuffer):
+    __gsignals__ = {
+        'insert-text': 'override',
+        }
+
+    def __init__(self, max_length):
+        super(TextBufferLimitSize, self).__init__()
+        self.max_length = max_length
+
+    def do_insert_text(self, iter, text, length):
+        free_chars = self.max_length - self.get_char_count()
+        # Slice operation needs an unicode string to work as expected
+        text = text.decode('utf-8')[0:free_chars].encode('utf-8')
+        length = len(text)
+        return gtk.TextBuffer.do_insert_text(self, iter, text, length)

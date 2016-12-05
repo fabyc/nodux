@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 import gobject
 import gettext
@@ -11,7 +11,9 @@ from tryton.gui.window.win_search import WinSearch
 from tryton.gui.window.win_form import WinForm
 from tryton.common.popup_menu import populate
 from tryton.common.completion import get_completion, update_completion
-from tryton.common.entry_position import manage_entry_position
+from tryton.common.entry_position import reset_position
+from tryton.common.domain_parser import quote
+from tryton.config import CONFIG
 
 _ = gettext.gettext
 
@@ -24,7 +26,7 @@ class Many2One(Widget):
         self.widget = gtk.HBox(spacing=0)
         self.widget.set_property('sensitive', True)
 
-        self.wid_text = gtk.Entry()
+        self.wid_text = self.mnemonic_widget = gtk.Entry()
         self.wid_text.set_property('width-chars', 13)
         self.wid_text.set_property('activates_default', True)
         self.wid_text.connect('key-press-event', self.send_modified)
@@ -33,27 +35,18 @@ class Many2One(Widget):
         self.wid_text.connect('focus-out-event',
             lambda x, y: self._focus_out())
         self.wid_text.connect('changed', self.sig_changed)
-        manage_entry_position(self.wid_text)
         self.changed = True
         self.focus_out = True
 
         if int(self.attrs.get('completion', 1)):
-            self.wid_completion = get_completion()
-            self.wid_completion.connect('match-selected',
-                self._completion_match_selected)
-            self.wid_completion.connect('action-activated',
-                self._completion_action_activated)
-            self.wid_text.set_completion(self.wid_completion)
             self.wid_text.connect('changed', self._update_completion)
-        else:
-            self.wid_completion = None
+        self.wid_completion = None
 
         self.wid_text.set_icon_from_stock(gtk.ENTRY_ICON_SECONDARY,
             'tryton-find')
         self.wid_text.connect('icon-press', self.sig_edit)
 
         self.widget.pack_end(self.wid_text, expand=True, fill=True)
-        self.widget.set_focus_chain([self.wid_text])
 
         self._readonly = False
 
@@ -63,10 +56,10 @@ class Many2One(Widget):
     def _readonly_set(self, value):
         self._readonly = value
         self._set_button_sensitive()
-        if value:
+        if value and CONFIG['client.fast_tabbing']:
             self.widget.set_focus_chain([])
         else:
-            self.widget.set_focus_chain([self.wid_text])
+            self.widget.unset_focus_chain()
 
     def _set_button_sensitive(self):
         self.wid_text.set_editable(not self._readonly)
@@ -94,9 +87,6 @@ class Many2One(Widget):
             value = self.wid_text.get_text()
             return self.field.get_client(self.record) != value
         return False
-
-    def _color_widget(self):
-        return self.wid_text
 
     @staticmethod
     def has_target(value):
@@ -137,7 +127,7 @@ class Many2One(Widget):
                         self.field.set_client(self.record,
                             self.value_from_id(*result[0]), force_change=True)
                     else:
-                        self.wid_text.set_text('')
+                        self.set_text('')
                     self.focus_out = True
                     self.changed = True
 
@@ -146,7 +136,11 @@ class Many2One(Widget):
                     view_ids=self.attrs.get('view_ids', '').split(','),
                     views_preload=self.attrs.get('views', {}),
                     new=self.create_access)
-                win.screen.search_filter(text)
+                win.screen.search_filter(quote(text))
+                if len(win.screen.group) == 1:
+                    win.response(None, gtk.RESPONSE_OK)
+                else:
+                    win.show()
                 return
         self.focus_out = True
         self.changed = True
@@ -216,7 +210,8 @@ class Many2One(Widget):
                 view_ids=self.attrs.get('view_ids', '').split(','),
                 views_preload=self.attrs.get('views', {}),
                 new=self.create_access)
-            win.screen.search_filter(text)
+            win.screen.search_filter(quote(text))
+            win.show()
             return
         self.focus_out = True
         self.changed = True
@@ -242,7 +237,7 @@ class Many2One(Widget):
                 and editable
                 and event.keyval in (gtk.keysyms.Delete,
                     gtk.keysyms.BackSpace)):
-            self.wid_text.set_text('')
+            self.set_text('')
         return False
 
     def sig_changed(self, *args):
@@ -261,7 +256,7 @@ class Many2One(Widget):
                 # in such case, the original text should not be restored
                 if not self.wid_text.get_text():
                     # Restore text and position after display
-                    self.wid_text.set_text(text)
+                    self.set_text(text)
                     self.wid_text.set_position(position)
             gobject.idle_add(clean)
         return False
@@ -272,23 +267,23 @@ class Many2One(Widget):
     def set_value(self, record, field):
         if field.get_client(record) != self.wid_text.get_text():
             field.set_client(record, self.value_from_id(None, ''))
-            self.wid_text.set_text('')
+            self.set_text('')
 
     def set_text(self, value):
         if not value:
             value = ''
         self.wid_text.set_text(value)
-        self.wid_text.set_position(len(value))
+        reset_position(self.wid_text)
 
     def display(self, record, field):
         self.changed = False
         super(Many2One, self).display(record, field)
 
         self._set_button_sensitive()
+        self._set_completion()
 
         if not field:
-            self.wid_text.set_text('')
-            self.wid_text.set_position(0)
+            self.set_text('')
             self.changed = True
             return False
         self.set_text(field.get_client(record))
@@ -307,6 +302,18 @@ class Many2One(Widget):
             gobject.idle_add(populate, menu, self.get_model(),
                 self.id_from_value(value), '', self.field)
         return True
+
+    def _set_completion(self):
+        if not int(self.attrs.get('completion', 1)):
+            return
+        self.wid_completion = get_completion(
+            search=self.read_access,
+            create=self.create_access)
+        self.wid_completion.connect('match-selected',
+            self._completion_match_selected)
+        self.wid_completion.connect('action-activated',
+            self._completion_action_activated)
+        self.wid_text.set_completion(self.wid_completion)
 
     def _completion_match_selected(self, completion, model, iter_):
         rec_name, record_id = model.get(iter_, 0, 1)

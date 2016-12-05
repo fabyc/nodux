@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 'Action'
 import gtk
 from tryton.gui.window.view_form.screen import Screen
@@ -97,10 +97,11 @@ class Action(SignalEvent):
                 int(self.screen.current_view.attributes.get(
                         'keyword_open', 0))):
             GenericAction.exec_keyword('tree_open', {
-                'model': self.screen.model_name,
-                'id': self.screen.id_get(),
-                'ids': [self.screen.id_get()],
-                }, context=self.screen.context.copy(), warning=False)
+                    'model': self.screen.model_name,
+                    'id': (self.screen.current_record.id
+                        if self.screen.current_record else None),
+                    'ids': [r.id for r in self.screen.selected_records],
+                    }, context=self.screen.context.copy(), warning=False)
         else:
             def callback(result):
                 if result:

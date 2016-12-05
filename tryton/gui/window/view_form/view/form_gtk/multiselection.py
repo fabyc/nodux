@@ -17,6 +17,7 @@ class MultiSelection(Widget, SelectionMixin):
         self.widget = gtk.ScrolledWindow()
         self.widget.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
         self.widget.set_shadow_type(gtk.SHADOW_ETCHED_IN)
+        self.widget.get_accessible().set_name(attrs.get('string', ''))
 
         self.model = gtk.ListStore(gobject.TYPE_INT, gobject.TYPE_STRING)
         self.tree = TreeViewControl()
@@ -38,8 +39,10 @@ class MultiSelection(Widget, SelectionMixin):
         self.init_selection()
         self.id2path = {}
 
-    def _color_widget(self):
-        return self.tree
+    def _readonly_set(self, readonly):
+        super(MultiSelection, self)._readonly_set(readonly)
+        selection = self.tree.get_selection()
+        selection.set_select_function(lambda info: not readonly)
 
     @property
     def modified(self):
@@ -67,8 +70,10 @@ class MultiSelection(Widget, SelectionMixin):
         selection = self.tree.get_selection()
         selection.handler_block_by_func(self.changed)
         try:
+            # Remove select_function to allow update,
+            # it will be set back in the super call
+            selection.set_select_function(lambda info: True)
             self.update_selection(record, field)
-            super(MultiSelection, self).display(record, field)
             self.model.clear()
             if field is None:
                 return
@@ -83,5 +88,6 @@ class MultiSelection(Widget, SelectionMixin):
                         and element not in group.record_deleted
                         and element.id in id2path):
                     selection.select_path(id2path[element.id])
+            super(MultiSelection, self).display(record, field)
         finally:
             selection.handler_unblock_by_func(self.changed)

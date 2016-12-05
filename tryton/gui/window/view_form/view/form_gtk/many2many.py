@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 
 from tryton.gui.window.view_form.screen import Screen
@@ -10,6 +10,7 @@ import tryton.common as common
 import gettext
 from tryton.common.placeholder_entry import PlaceholderEntry
 from tryton.common.completion import get_completion, update_completion
+from tryton.common.domain_parser import quote
 
 _ = gettext.gettext
 
@@ -20,7 +21,11 @@ class Many2Many(Widget):
     def __init__(self, view, attrs):
         super(Many2Many, self).__init__(view, attrs)
 
-        self.widget = gtk.VBox(homogeneous=False, spacing=5)
+        self.widget = gtk.Frame()
+        self.widget.set_shadow_type(gtk.SHADOW_NONE)
+        self.widget.get_accessible().set_name(attrs.get('string', ''))
+        vbox = gtk.VBox(homogeneous=False, spacing=5)
+        self.widget.add(vbox)
         self._readonly = True
         self._position = 0
 
@@ -43,7 +48,9 @@ class Many2Many(Widget):
         hbox.pack_start(self.wid_text, expand=True, fill=True)
 
         if int(self.attrs.get('completion', 1)):
-            self.wid_completion = get_completion()
+            self.wid_completion = get_completion(
+                create=self.attrs.get('create', True)
+                and common.MODELACCESS[self.attrs['relation']]['create'])
             self.wid_completion.connect('match-selected',
                 self._completion_match_selected)
             self.wid_completion.connect('action-activated',
@@ -82,7 +89,7 @@ class Many2Many(Widget):
         frame = gtk.Frame()
         frame.add(hbox)
         frame.set_shadow_type(gtk.SHADOW_OUT)
-        self.widget.pack_start(frame, expand=False, fill=True)
+        vbox.pack_start(frame, expand=False, fill=True)
 
         self.screen = Screen(attrs['relation'],
             view_ids=attrs.get('view_ids', '').split(','),
@@ -90,51 +97,41 @@ class Many2Many(Widget):
             row_activate=self._on_activate)
         self.screen.signal_connect(self, 'record-message', self._sig_label)
 
-        self.widget.pack_start(self.screen.widget, expand=True, fill=True)
+        vbox.pack_start(self.screen.widget, expand=True, fill=True)
 
         self.screen.widget.connect('key_press_event', self.on_keypress)
         self.wid_text.connect('key_press_event', self.on_keypress)
 
-    def _color_widget(self):
-        if hasattr(self.screen.current_view, 'treeview'):
-            return self.screen.current_view.treeview
-        return super(Many2Many, self)._color_widget()
-
     def on_keypress(self, widget, event):
         editable = self.wid_text.get_editable()
         activate_keys = [gtk.keysyms.Tab, gtk.keysyms.ISO_Left_Tab]
+        remove_keys = [gtk.keysyms.Delete, gtk.keysyms.KP_Delete]
         if not self.wid_completion:
             activate_keys.append(gtk.keysyms.Return)
-        if event.keyval == gtk.keysyms.F3:
-            self._sig_add()
-            return True
-        if event.keyval == gtk.keysyms.F2 \
-                and widget == self.screen.widget:
-            self._sig_edit()
-            return True
-        if event.keyval in (gtk.keysyms.Delete, gtk.keysyms.KP_Delete) \
-                and widget == self.screen.widget:
-            self._sig_remove()
-            return True
-        if (widget == self.wid_text
-                and event.keyval in activate_keys
-                and editable
-                and self.wid_text.get_text()):
-            self._sig_add()
-            self.wid_text.grab_focus()
+        if widget == self.screen.widget:
+            if event.keyval == gtk.keysyms.F3 and editable:
+                self._sig_add()
+                return True
+            elif event.keyval == gtk.keysyms.F2:
+                self._sig_edit()
+                return True
+            elif event.keyval in remove_keys and editable:
+                self._sig_remove()
+                return True
+        elif widget == self.wid_text:
+            if event.keyval == gtk.keysyms.F3:
+                self._sig_new()
+                return True
+            elif event.keyval == gtk.keysyms.F2:
+                self._sig_add()
+                return True
+            elif event.keyval in activate_keys and self.wid_text.get_text():
+                self._sig_add()
+                self.wid_text.grab_focus()
         return False
 
     def destroy(self):
         self.screen.destroy()
-
-    def color_set(self, name):
-        super(Many2Many, self).color_set(name)
-        widget = self._color_widget()
-        # if the style to apply is different from readonly then insensitive
-        # cellrenderers should use the default insensitive color
-        if name != 'readonly':
-            widget.modify_text(gtk.STATE_INSENSITIVE,
-                    self.colors['text_color_insensitive'])
 
     def _sig_add(self, *args):
         if not self.focus_out:
@@ -161,7 +158,8 @@ class Many2Many(Widget):
             view_ids=self.attrs.get('view_ids', '').split(','),
             views_preload=self.attrs.get('views', {}),
             new=self.attrs.get('create', True))
-        win.screen.search_filter(value)
+        win.screen.search_filter(quote(value))
+        win.show()
 
     def _sig_remove(self, *args):
         self.screen.remove(remove=True)
@@ -178,10 +176,13 @@ class Many2Many(Widget):
         add_remove = self.record.expr_eval(self.attrs.get('add_remove'))
         if add_remove:
             domain = [domain, add_remove]
+        context = self.field.context_get(self.record)
+
         screen = Screen(self.attrs['relation'], domain=domain,
             view_ids=self.attrs.get('view_ids', '').split(','),
             mode=['form'], views_preload=self.attrs.get('views', {}),
-            readonly=self.attrs.get('readonly', False))
+            readonly=self.attrs.get('readonly', False),
+            context=context)
         screen.load([self.screen.current_record.id])
 
         def callback(result):
@@ -193,9 +194,33 @@ class Many2Many(Widget):
                 self.screen.display()
         WinForm(screen, callback)
 
+    def _sig_new(self):
+        domain = self.field.domain_get(self.record)
+        add_remove = self.record.expr_eval(self.attrs.get('add_remove'))
+        if add_remove:
+            domain = [domain, add_remove]
+        context = self.field.context_get(self.record)
+
+        screen = Screen(self.attrs['relation'], domain=domain,
+            view_ids=self.attrs.get('view_ids', '').split(','),
+            mode=['form'], views_preload=self.attrs.get('views', {}),
+            context=context)
+
+        def callback(result):
+            self.focus_out = True
+            if result:
+                record = screen.current_record
+                self.screen.load([record.id], modified=True)
+            self.wid_text.set_text('')
+            self.wid_text.grab_focus()
+
+        self.focus_out = False
+        WinForm(screen, callback, new=True, save_current=True)
+
     def _readonly_set(self, value):
         self._readonly = value
         self._set_button_sensitive()
+        self.wid_text.set_sensitive(not value)
 
     def _set_button_sensitive(self):
         if self.record and self.field:
@@ -206,7 +231,6 @@ class Many2Many(Widget):
         else:
             size_limit = False
 
-        self.wid_text.set_sensitive(not self._readonly)
         self.but_add.set_sensitive(bool(
                 not self._readonly
                 and not size_limit))
@@ -260,22 +284,4 @@ class Many2Many(Widget):
             self._sig_add()
             self.wid_text.grab_focus()
         elif index == 1:
-            model = self.attrs['relation']
-            domain = self.field.domain_get(self.record)
-            add_remove = self.record.expr_eval(self.attrs.get('add_remove'))
-            if add_remove:
-                domain = [domain, add_remove]
-            context = self.field.context_get(self.record)
-
-            screen = Screen(model, domain, context=context, mode=['form'])
-
-            def callback(result):
-                self.focus_out = True
-                if result:
-                    record = screen.current_record
-                    self.screen.load([record.id], modified=True)
-                self.wid_text.set_text('')
-                self.wid_text.grab_focus()
-
-            self.focus_out = False
-            WinForm(screen, callback, new=True, save_current=True)
+            self._sig_new()

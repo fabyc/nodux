@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 import pango
 import gettext
@@ -13,10 +13,11 @@ from tryton.gui.window.nomodal import NoModal
 from tryton.common.button import Button
 from tryton.common import RPCExecute, RPCException
 from tryton.common import TRYTON_ICON
+from .infobar import InfoBar
 _ = gettext.gettext
 
 
-class Wizard(object):
+class Wizard(InfoBar):
 
     def __init__(self, name=False):
         super(Wizard, self).__init__()
@@ -59,7 +60,6 @@ class Wizard(object):
             try:
                 result = result()
             except RPCException:
-                self.destroy()
                 return
             self.session_id, self.start_state, self.end_state = result
             self.state = self.start_state
@@ -108,6 +108,12 @@ class Wizard(object):
 
             def execute_actions():
                 for action in result.get('actions', []):
+                    for k, v in [
+                            ('direct_print', self.direct_print),
+                            ('email_print', self.email_print),
+                            ('email', self.email),
+                            ]:
+                        action[0].setdefault(k, v)
                     Action._exec_action(*action, context=self.context.copy())
 
             if self.state == self.end_state:
@@ -139,7 +145,9 @@ class Wizard(object):
         if (not self.screen.current_record.validate()
                 and state != self.end_state):
             self.screen.display(set_cursor=True)
+            self.message_info(self.screen.invalid_message(), gtk.MESSAGE_ERROR)
             return
+        self.message_info()
         self.state = state
         self.process()
 
@@ -178,22 +186,8 @@ class Wizard(object):
         title.modify_fg(gtk.STATE_NORMAL, gtk.gdk.color_parse("#000000"))
         title.show()
 
-        self.info_label = gtk.Label()
-        self.info_label.set_padding(3, 3)
-        self.info_label.set_alignment(1.0, 0.5)
-
-        self.eb_info = gtk.EventBox()
-        self.eb_info.add(self.info_label)
-        self.eb_info.connect('button-release-event',
-                lambda *a: self.message_info(''))
-
-        vbox = gtk.VBox()
-        vbox.pack_start(self.eb_info, expand=True, fill=True, padding=5)
-        vbox.show()
-
         hbox = gtk.HBox()
         hbox.pack_start(title, expand=True, fill=True)
-        hbox.pack_start(vbox, expand=False, fill=True, padding=20)
         hbox.show()
 
         frame = gtk.Frame()
@@ -207,6 +201,9 @@ class Wizard(object):
         eb.show()
 
         self.widget.pack_start(eb, expand=False, fill=True, padding=3)
+
+        self.create_info_bar()
+        self.widget.pack_start(self.info_bar, False, True)
 
         if self.toolbar_box:
             self.widget.pack_start(self.toolbar_box, False, True)
@@ -295,6 +292,7 @@ class WizardDialog(Wizard, NoModal):
         self.dia.set_position(gtk.WIN_POS_CENTER_ON_PARENT)
         self.dia.set_icon(TRYTON_ICON)
         self.dia.set_deletable(False)
+        self.dia.connect('delete-event', lambda *a: True)
         self.dia.connect('close', self.close)
         self.dia.connect('response', self.response)
 

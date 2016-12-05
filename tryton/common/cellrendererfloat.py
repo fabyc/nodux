@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 import gobject
 import locale
@@ -10,11 +10,11 @@ class CellRendererFloat(CellRendererInteger):
 
     def __init__(self):
         super(CellRendererFloat, self).__init__()
-        self.digits = (16, 2)
+        self.digits = None
 
-    def on_start_editing(self, event, widget, path, background_area,
+    def do_start_editing(self, event, widget, path, background_area,
             cell_area, flags):
-        editable = super(CellRendererFloat, self).on_start_editing(event,
+        editable = super(CellRendererFloat, self).do_start_editing(event,
             widget, path, background_area, cell_area, flags)
         editable.connect('key-press-event', self.key_press_event)
         return editable
@@ -35,18 +35,12 @@ class CellRendererFloat(CellRendererInteger):
             return
 
         try:
-            locale.atof(new_value)
+            value = locale.atof(new_value)
         except ValueError:
             entry.stop_emission('insert-text')
             return
 
-        new_int = new_value
-        new_decimal = ''
-        if decimal_point in new_value:
-            new_int, new_decimal = new_value.rsplit(decimal_point, 1)
-
-        if len(new_int) > self.digits[0] \
-                or len(new_decimal) > self.digits[1]:
+        if self.digits and not (round(value, self.digits[1]) == float(value)):
             entry.stop_emission('insert-text')
 
 

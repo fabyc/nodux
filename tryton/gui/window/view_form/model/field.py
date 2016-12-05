@@ -1,20 +1,20 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import os
 from itertools import chain
 import tempfile
 import locale
-from tryton.common import datetime_strftime, \
+from tryton.common import \
         domain_inversion, eval_domain, localize_domain, \
-        merge, inverse_leaf, concat, simplify, EvalEnvironment
+        merge, inverse_leaf, filter_leaf, concat, simplify, unique_value, \
+        EvalEnvironment
 import tryton.common as common
-import time
 import datetime
 import decimal
 from decimal import Decimal
 import math
-from tryton.translate import date_format
 from tryton.common import RPCExecute, RPCException
+import tryton.rpc as rpc
 
 
 class Field(object):
@@ -79,24 +79,24 @@ class Field(object):
     def validate(self, record, softvalidation=False, pre_validate=None):
         if self.attrs.get('readonly'):
             return True
-        res = True
+        invalid = False
         self.get_state_attrs(record)['domain_readonly'] = False
         domain = simplify(self.validation_domains(record, pre_validate))
         if not softvalidation:
-            res = res and self.check_required(record)
+            if not self.check_required(record):
+                invalid = 'required'
         if isinstance(domain, bool):
-            res = res and domain
+            if not domain:
+                invalid = 'domain'
         elif domain == [('id', '=', None)]:
-            res = False
+            invalid = 'domain'
         else:
-            if (isinstance(domain, list)
-                    and len(domain) == 1
-                    and domain[0][1] == '='):
+            unique, leftpart, value = unique_value(domain)
+            if unique:
                 # If the inverted domain is so constraint that only one value
                 # is possible we should use it. But we must also pay attention
                 # to the fact that the original domain might be a 'OR' domain
                 # and thus not preventing the modification of fields.
-                leftpart, _, value = domain[0][:3]
                 if value is False:
                     # XXX to remove once server domains are fixed
                     value = None
@@ -118,9 +118,10 @@ class Field(object):
                     self.set_client(record, value)
                     self.get_state_attrs(record)['domain_readonly'] = (
                         domain_readonly)
-            res = res and eval_domain(domain, EvalEnvironment(record))
-        self.get_state_attrs(record)['valid'] = res
-        return res
+            if not eval_domain(domain, EvalEnvironment(record)):
+                invalid = domain
+        self.get_state_attrs(record)['invalid'] = invalid
+        return not invalid
 
     def set(self, record, value):
         record.value[self.name] = value
@@ -203,12 +204,20 @@ class DateTimeField(Field):
     _default = None
 
     def set_client(self, record, value, force_change=False):
-        if isinstance(value, basestring):
-            try:
-                value = datetime.datetime(*time.strptime(value,
-                        date_format() + ' ' + self.time_format(record))[:6])
-            except ValueError:
-                value = self._default
+        if isinstance(value, datetime.time):
+            current_value = self.get_client(record)
+            if current_value:
+                value = datetime.datetime.combine(
+                    current_value.date(), value)
+            else:
+                value = None
+        elif value and not isinstance(value, datetime.datetime):
+            current_value = self.get_client(record)
+            if current_value:
+                time = current_value.time()
+            else:
+                time = datetime.time()
+            value = datetime.datetime.combine(value, time)
         if value:
             value = common.untimezoned_date(value)
         super(DateTimeField, self).set_client(record, value,
@@ -217,10 +226,11 @@ class DateTimeField(Field):
     def get_client(self, record):
         value = super(DateTimeField, self).get_client(record)
         if value:
-            value = common.timezoned_date(value)
-            return datetime_strftime(value, date_format() + ' ' +
-                self.time_format(record))
-        return ''
+            return common.timezoned_date(value)
+
+    def date_format(self, record):
+        context = self.context_get(record)
+        return context.get('date_format', '%x')
 
     def time_format(self, record):
         return record.expr_eval(self.attrs['format'])
@@ -231,23 +241,15 @@ class DateField(Field):
     _default = None
 
     def set_client(self, record, value, force_change=False):
-        if isinstance(value, basestring):
-            try:
-                value = datetime.date(*time.strptime(value,
-                        date_format())[:3])
-            except ValueError:
-                value = self._default
-        elif isinstance(value, datetime.datetime):
+        if isinstance(value, datetime.datetime):
             assert(value.time() == datetime.time())
             value = value.date()
         super(DateField, self).set_client(record, value,
             force_change=force_change)
 
-    def get_client(self, record):
-        value = super(DateField, self).get_client(record)
-        if value:
-            return datetime_strftime(value, date_format())
-        return ''
+    def date_format(self, record):
+        context = self.context_get(record)
+        return context.get('date_format', '%x')
 
 
 class TimeField(Field):
@@ -258,30 +260,39 @@ class TimeField(Field):
         return self.get(record) is None
 
     def set_client(self, record, value, force_change=False):
-        if isinstance(value, basestring):
-            try:
-                value = datetime.time(*time.strptime(value,
-                        self.time_format(record))[3:6])
-            except ValueError:
-                value = self._default
-        elif isinstance(value, datetime.datetime):
+        if isinstance(value, datetime.datetime):
             value = value.time()
         super(TimeField, self).set_client(record, value,
             force_change=force_change)
-
-    def get_client(self, record):
-        value = super(TimeField, self).get_client(record)
-        if value is not None:
-            return value.strftime(self.time_format(record))
-        return ''
 
     def time_format(self, record):
         return record.expr_eval(self.attrs['format'])
 
 
+class TimeDeltaField(Field):
+
+    _default = None
+
+    def _is_empty(self, record):
+        return self.get(record) is None
+
+    def converter(self, record):
+        # TODO allow local context converter
+        return rpc.CONTEXT.get(self.attrs.get('converter'))
+
+    def set_client(self, record, value, force_change=False):
+        if isinstance(value, basestring):
+            value = common.timedelta.parse(value, self.converter(record))
+        super(TimeDeltaField, self).set_client(
+            record, value, force_change=force_change)
+
+    def get_client(self, record):
+        value = super(TimeDeltaField, self).get_client(record)
+        return common.timedelta.format(value, self.converter(record))
+
+
 class FloatField(Field):
     _default = None
-    default_digits = (16, 2)
 
     def _is_empty(self, record):
         return self.get(record) is None
@@ -290,10 +301,9 @@ class FloatField(Field):
         return record.value.get(self.name, self._default)
 
     def digits(self, record, factor=1):
-        digits = tuple(y if x is None else x for x, y in zip(
-                record.expr_eval(
-                    self.attrs.get('digits', self.default_digits)),
-                self.default_digits))
+        digits = record.expr_eval(self.attrs.get('digits'))
+        if not digits or any(d is None for d in digits):
+            return
         shift = int(round(math.log(abs(factor), 10)))
         return (digits[0] + shift, digits[1] - shift)
 
@@ -314,8 +324,15 @@ class FloatField(Field):
     def get_client(self, record, factor=1):
         value = record.value.get(self.name)
         if value is not None:
-            digit = self.digits(record, factor=factor)[1]
-            return locale.format('%.*f', (digit, value * factor), True)
+            digits = self.digits(record, factor=factor)
+            if digits:
+                p = digits[1]
+            else:
+                d = value * factor
+                if not isinstance(d, Decimal):
+                    d = Decimal(repr(d))
+                p = -int(d.as_tuple().exponent)
+            return locale.format('%.*f', (p, value * factor), True)
         else:
             return ''
 
@@ -338,7 +355,6 @@ class NumericField(FloatField):
 
 
 class IntegerField(FloatField):
-    default_digits = (16, 0)
 
     def convert(self, value):
         try:
@@ -447,11 +463,6 @@ class O2MField(Field):
 
     def __init__(self, attrs):
         super(O2MField, self).__init__(attrs)
-        self.in_on_change = False
-
-    def sig_changed(self, record):
-        if not self.in_on_change:
-            return super(O2MField, self).sig_changed(record)
 
     def _group_changed(self, group, record):
         if not record.parent:
@@ -582,7 +593,7 @@ class O2MField(Field):
         if mode == 'list values':
             context = self.context_get(record)
             field_names = set(f for v in value for f in v
-                if f not in group.fields)
+                if f not in group.fields and '.' not in f)
             if field_names:
                 try:
                     fields = RPCExecute('model', self.attrs['relation'],
@@ -600,11 +611,14 @@ class O2MField(Field):
             for vals in value:
                 new_record = record.value[self.name].new(default=False)
                 if default:
-                    new_record.set_default(vals)
-                    group.add(new_record)
+                    # Don't validate as parent will validate
+                    new_record.set_default(vals, signal=False, validate=False)
+                    group.add(new_record, signal=False)
                 else:
-                    new_record.set(vals)
+                    new_record.set(vals, signal=False)
                     group.append(new_record)
+            # Trigger signal only once with the last record
+            new_record.signal('record-changed')
 
     def set(self, record, value, _default=False):
         group = record.value.get(self.name)
@@ -655,11 +669,10 @@ class O2MField(Field):
         record.modified_fields.setdefault(self.name)
 
     def set_on_change(self, record, value):
+        record.modified_fields.setdefault(self.name)
         self._set_default_value(record)
         if isinstance(value, (list, tuple)):
             self._set_value(record, value)
-            record.modified_fields.setdefault(self.name)
-            record.signal('record-modified')
             return
 
         if value and (value.get('add') or value.get('update')):
@@ -679,7 +692,7 @@ class O2MField(Field):
                 fields = {}
 
         to_remove = []
-        for record2 in record.value.get(self.name, []):
+        for record2 in record.value[self.name]:
             if not record2.id:
                 to_remove.append(record2)
         if value and value.get('remove'):
@@ -692,13 +705,11 @@ class O2MField(Field):
                 force_remove=False)
 
         if value and (value.get('add') or value.get('update', [])):
-            record.value[self.name].add_fields(fields, signal=False)
+            record.value[self.name].add_fields(fields)
             for index, vals in value.get('add', []):
                 new_record = record.value[self.name].new(default=False)
                 record.value[self.name].add(new_record, index, signal=False)
                 new_record.set_on_change(vals)
-            if value.get('add'):
-                record.value[self.name].signal('group-changed', new_record)
 
             for vals in value.get('update', []):
                 if 'id' not in vals:
@@ -714,7 +725,7 @@ class O2MField(Field):
     def validate(self, record, softvalidation=False, pre_validate=None):
         if self.attrs.get('readonly'):
             return True
-        test = True
+        invalid = False
         ldomain = localize_domain(domain_inversion(
                 record.group.clean4inversion(pre_validate or []), self.name,
                 EvalEnvironment(record)), self.name)
@@ -726,11 +737,14 @@ class O2MField(Field):
         for record2 in record.value.get(self.name, []):
             if not record2.loaded and record2.id >= 0 and not pre_validate:
                 continue
-            test &= record2.validate(softvalidation=softvalidation,
-                pre_validate=ldomain)
-        test &= super(O2MField, self).validate(record, softvalidation,
+            if not record2.validate(softvalidation=softvalidation,
+                    pre_validate=ldomain):
+                invalid = 'children'
+        test = super(O2MField, self).validate(record, softvalidation,
             pre_validate)
-        self.get_state_attrs(record)['valid'] = test
+        if test and invalid:
+            self.get_state_attrs(record)['invalid'] = invalid
+            return False
         return test
 
     def state_set(self, record, states=('readonly', 'required', 'invisible')):
@@ -744,9 +758,8 @@ class O2MField(Field):
 
     def domain_get(self, record):
         screen_domain, attr_domain = self.domains_get(record)
-        # Forget screen_domain because it only means at least one record
-        # and not all records
-        return attr_domain
+        return concat(localize_domain(inverse_leaf(screen_domain), self.name),
+            attr_domain)
 
 
 class M2MField(O2MField):
@@ -837,17 +850,33 @@ class ReferenceField(Field):
         screen_domain, attr_domain = self.domains_get(record, pre_validate)
         return screen_domain
 
+    def domain_get(self, record):
+        if record.value.get(self.name):
+            model = record.value[self.name][0]
+        else:
+            model = None
+        screen_domain, attr_domain = self.domains_get(record)
+        return concat(localize_domain(
+                filter_leaf(screen_domain, self.name, model),
+                strip_target=True), attr_domain)
+
+
+class _FileCache(object):
+    def __init__(self, path):
+        self.path = path
+
 
 class BinaryField(Field):
 
     _default = None
+    cast = bytearray if bytes == str else bytes
 
     def get(self, record):
         result = record.value.get(self.name, self._default)
-        if isinstance(result, basestring):
+        if isinstance(result, _FileCache):
             try:
-                with open(result, 'rb') as fp:
-                    result = buffer(fp.read())
+                with open(result.path, 'rb') as fp:
+                    result = self.cast(fp.read())
             except IOError:
                 result = self.get_data(record)
         return result
@@ -859,7 +888,7 @@ class BinaryField(Field):
         _, filename = tempfile.mkstemp(prefix='tryton_')
         with open(filename, 'wb') as fp:
             fp.write(value or '')
-        self.set(record, filename)
+        self.set(record, _FileCache(filename))
         record.modified_fields.setdefault(self.name)
         record.signal('record-modified')
         self.sig_changed(record)
@@ -868,14 +897,15 @@ class BinaryField(Field):
 
     def get_size(self, record):
         result = record.value.get(self.name) or 0
-        if isinstance(result, basestring):
-            result = os.stat(result).st_size
-        elif isinstance(result, buffer):
+        if isinstance(result, _FileCache):
+            result = os.stat(result.path).st_size
+        elif isinstance(result, (basestring, bytes, bytearray)):
             result = len(result)
         return result
 
     def get_data(self, record):
-        if not isinstance(record.value.get(self.name), (basestring, buffer)):
+        if not isinstance(record.value.get(self.name),
+                (basestring, bytes, bytearray)):
             if record.id < 0:
                 return ''
             context = record.context_get()
@@ -887,7 +917,7 @@ class BinaryField(Field):
             _, filename = tempfile.mkstemp(prefix='tryton_')
             with open(filename, 'wb') as fp:
                 fp.write(values[self.name] or '')
-            self.set(record, filename)
+            self.set(record, _FileCache(filename))
         return self.get(record)
 
 
@@ -910,9 +940,15 @@ class DictField(Field):
         return concat(localize_domain(inverse_leaf(screen_domain)),
             attr_domain)
 
+    def date_format(self, record):
+        context = self.context_get(record)
+        return context.get('date_format', '%x')
+
+    def time_format(self, record):
+        return '%X'
+
 TYPES = {
     'char': CharField,
-    'float_time': FloatField,
     'integer': IntegerField,
     'biginteger': IntegerField,
     'float': FloatField,
@@ -926,6 +962,7 @@ TYPES = {
     'datetime': DateTimeField,
     'date': DateField,
     'time': TimeField,
+    'timedelta': TimeDeltaField,
     'one2one': O2OField,
     'binary': BinaryField,
     'dict': DictField,

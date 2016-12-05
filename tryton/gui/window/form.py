@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 "Form"
 import gettext
 import gtk
@@ -11,11 +11,11 @@ from tryton.gui.window import Window
 from tryton.gui.window.win_export import WinExport
 from tryton.gui.window.win_import import WinImport
 from tryton.gui.window.attachment import Attachment
+from tryton.gui.window.note import Note
 from tryton.gui.window.revision import Revision
 from tryton.signal_event import SignalEvent
-from tryton.common import message, sur, sur_3b, COLOR_SCHEMES, timezoned_date
+from tryton.common import message, sur, sur_3b, timezoned_date
 import tryton.common as common
-from tryton.translate import date_format
 from tryton.common import RPCExecute, RPCException
 from tryton.common.datetime_strftime import datetime_strftime
 from tryton import plugins
@@ -45,6 +45,8 @@ class Form(SignalEvent, TabContent):
         (None,) * 5,
         ('attach', 'tryton-attachment', _('Attachment(0)'),
             _('Add an attachment to the record'), 'sig_attach'),
+        ('note', 'tryton-note', _('Note(0)'),
+            _('Add a note to the record'), 'sig_note'),
     ]
     menu_def = [
         (_('_New'), 'tryton-new', 'sig_new', '<tryton>/Form/New'),
@@ -70,6 +72,7 @@ class Form(SignalEvent, TabContent):
         (None,) * 4,
         (_('A_ttachments...'), 'tryton-attachment', 'sig_attach',
             '<tryton>/Form/Attachments'),
+        (_('_Notes...'), 'tryton-note', 'sig_note', '<tryton>/Form/Notes'),
         (_('_Actions...'), 'tryton-executable', 'sig_action',
             '<tryton>/Form/Actions'),
         (_('_Relate...'), 'tryton-go-jump', 'sig_relate',
@@ -90,7 +93,7 @@ class Form(SignalEvent, TabContent):
 
     def __init__(self, model, res_id=False, domain=None, order=None, mode=None,
             view_ids=None, context=None, name=False, limit=None,
-            search_value=None, tab_domain=None):
+            search_value=None, tab_domain=None, context_model=None):
         super(Form, self).__init__()
 
         if not mode:
@@ -110,7 +113,8 @@ class Form(SignalEvent, TabContent):
 
         self.screen = Screen(self.model, mode=mode, context=context,
             view_ids=view_ids, domain=domain, limit=limit, order=order,
-            search_value=search_value, tab_domain=tab_domain)
+            search_value=search_value, tab_domain=tab_domain,
+            context_model=context_model)
         self.screen.widget.show()
 
         if not name:
@@ -126,20 +130,15 @@ class Form(SignalEvent, TabContent):
 
         self.create_tabcontent()
 
-        self.url_entry = url_entry = gtk.Entry()
-        url_entry.show()
-        url_entry.set_editable(False)
-        style = url_entry.get_style()
-        url_entry.modify_bg(gtk.STATE_ACTIVE,
-            style.bg[gtk.STATE_INSENSITIVE])
-        self.widget.pack_start(url_entry, False, False)
+        #self.url_entry = url_entry = gtk.Entry()
+        #url_entry.show()
+        #url_entry.set_editable(False)
+        #style = url_entry.get_style()
+        #url_entry.modify_bg(gtk.STATE_ACTIVE,
+        #    style.bg[gtk.STATE_INSENSITIVE])
+        #self.widget.pack_start(url_entry, False, False)
 
-        access = common.MODELACCESS[self.model]
-        for button, access_type in (
-                ('new', 'create'),
-                ('save', 'write'),
-                ):
-            self.buttons[button].props.sensitive = access[access_type]
+        self.set_buttons_sensitive()
 
         self.screen.signal_connect(self, 'record-message',
             self._record_message)
@@ -149,6 +148,7 @@ class Form(SignalEvent, TabContent):
         self.screen.signal_connect(self, 'record-saved', self._record_saved)
         self.screen.signal_connect(self, 'attachment-count',
                 self._attachment_count)
+        self.screen.signal_connect(self, 'unread-note', self._unread_note)
 
         if res_id not in (None, False):
             if isinstance(res_id, (int, long)):
@@ -191,12 +191,6 @@ class Form(SignalEvent, TabContent):
     def destroy(self):
         self.screen.destroy()
 
-    def ids_get(self):
-        return self.screen.ids_get()
-
-    def id_get(self):
-        return self.screen.id_get()
-
     def sig_attach(self, widget=None):
         record = self.screen.current_record
         if not record or record.id < 0:
@@ -219,9 +213,38 @@ class Form(SignalEvent, TabContent):
             self.buttons['attach'].set_stock_id('tryton-attachment-hi')
         else:
             self.buttons['attach'].set_stock_id('tryton-attachment')
-        record_id = self.id_get()
+        record = self.screen.current_record
         self.buttons['attach'].props.sensitive = bool(
-            record_id >= 0 and record_id is not False)
+            record.id >= 0 if record else False)
+
+    def sig_note(self, widget=None):
+        record = self.screen.current_record
+        if not record or record.id < 0:
+            return
+        Note(record,
+            lambda: self.update_unread_note(reload=True))
+
+    def update_unread_note(self, reload=False):
+        record = self.screen.current_record
+        if record:
+            unread = record.get_unread_note(reload=reload)
+        else:
+            unread = 0
+        self._unread_note(None, unread)
+
+    def _unread_note(self, widget, signal_data):
+        label = _('Note(%d)') % signal_data
+        self.buttons['note'].set_label(label)
+        if signal_data:
+            self.buttons['note'].set_stock_id('tryton-note-hi')
+        else:
+            self.buttons['note'].set_stock_id('tryton-note')
+        record = self.screen.current_record
+        if not record or record.id < 0:
+            sensitive = False
+        else:
+            sensitive = True
+        self.buttons['note'].props.sensitive = sensitive
 
     def sig_switch(self, widget=None):
         if not self.modified_save():
@@ -229,9 +252,10 @@ class Form(SignalEvent, TabContent):
         self.screen.switch_view()
 
     def sig_logs(self, widget=None):
-        obj_id = self.id_get()
-        if obj_id < 0 or obj_id is False:
-            self.message_info(_('You have to select one record!'))
+        current_record = self.screen.current_record
+        if not current_record or current_record.id < 0:
+            self.message_info(
+                _('You have to select one record.'), gtk.MESSAGE_INFO)
             return False
 
         fields = [
@@ -243,19 +267,20 @@ class Form(SignalEvent, TabContent):
         ]
 
         try:
-            res = RPCExecute('model', self.model, 'read', [obj_id],
+            res = RPCExecute('model', self.model, 'read', [current_record.id],
                 [x[0] for x in fields], context=self.screen.context)
         except RPCException:
             return
+        date_format = self.screen.context.get('date_format', '%x')
+        datetime_format = date_format + ' %X.%f'
         message_str = ''
         for line in res:
             for (key, val) in fields:
                 value = str(line.get(key, False) or '/')
                 if line.get(key, False) \
                         and key in ('create_date', 'write_date'):
-                    display_format = date_format() + ' %H:%M:%S'
                     date = timezoned_date(line[key])
-                    value = common.datetime_strftime(date, display_format)
+                    value = common.datetime_strftime(date, datetime_format)
                 message_str += val + ' ' + value + '\n'
         message_str += _('Model:') + ' ' + self.model
         message(message_str)
@@ -272,7 +297,9 @@ class Form(SignalEvent, TabContent):
         except RPCException:
             return
         revision = self.screen.context.get('_datetime')
-        revision = Revision(revisions, revision).run()
+        format_ = self.screen.context.get('date_format', '%x')
+        format_ += ' %X.%f'
+        revision = Revision(revisions, revision, format_).run()
         # Prevent too old revision in form view
         if (self.screen.current_view.view_type == 'form'
                 and revision
@@ -294,13 +321,23 @@ class Form(SignalEvent, TabContent):
     def update_revision(self):
         revision = self.screen.context.get('_datetime')
         if revision:
-            format_ = date_format() + ' %H:%M:%S.%f'
+            format_ = self.screen.context.get('date_format', '%x')
+            format_ += ' %X.%f'
             revision = datetime_strftime(revision, format_)
             self.title.set_label('%s @ %s' % (self.name, revision))
         else:
             self.title.set_label(self.name)
-        for button in ('new', 'save'):
-            self.buttons[button].props.sensitive = not revision
+        self.set_buttons_sensitive(revision)
+
+    def set_buttons_sensitive(self, revision=None):
+        if not revision:
+            access = common.MODELACCESS[self.model]
+            self.buttons['new'].props.sensitive = access['create']
+            self.buttons['save'].props.sensitive = (
+                access['create'] or access['write'])
+        else:
+            for button in ['new', 'save']:
+                self.buttons[button].props.sensitive = False
 
     def sig_remove(self, widget=None):
         if not common.MODELACCESS[self.model]['delete']:
@@ -311,15 +348,16 @@ class Form(SignalEvent, TabContent):
             msg = _('Are you sure to remove those records?')
         if sur(msg):
             if not self.screen.remove(delete=True, force_remove=True):
-                self.message_info(_('Records not removed!'))
+                self.message_info(_('Records not removed.'), gtk.MESSAGE_ERROR)
             else:
-                self.message_info(_('Records removed!'), 'green')
+                self.message_info(_('Records removed.'), gtk.MESSAGE_INFO)
 
     def sig_import(self, widget=None):
         WinImport(self.model, self.screen.context)
 
     def sig_save_as(self, widget=None):
-        export = WinExport(self.model, self.ids_get(),
+        export = WinExport(self.model,
+            [r.id for r in self.screen.selected_records],
             context=self.screen.context)
         for name in self.screen.current_view.get_fields():
             export.sel_field(name)
@@ -331,7 +369,7 @@ class Form(SignalEvent, TabContent):
             if not self.modified_save():
                 return
         self.screen.new()
-        self.message_info('')
+        self.message_info()
         self.activate_save()
 
     def sig_copy(self, widget=None):
@@ -339,9 +377,9 @@ class Form(SignalEvent, TabContent):
             return
         if not self.modified_save():
             return
-        self.screen.copy()
-        self.message_info(_('Working now on the duplicated record(s)!'),
-            'green')
+        if self.screen.copy():
+            self.message_info(_('Working now on the duplicated record(s).'),
+                gtk.MESSAGE_INFO)
 
     def sig_save(self, widget=None):
         if widget:
@@ -351,24 +389,24 @@ class Form(SignalEvent, TabContent):
                 or common.MODELACCESS[self.model]['create']):
             return
         if self.screen.save_current():
-            self.message_info(_('Record saved!'), 'green')
+            self.message_info(_('Record saved.'), gtk.MESSAGE_INFO)
             return True
         else:
-            self.message_info(_('Invalid form!'))
+            self.message_info(self.screen.invalid_message(), gtk.MESSAGE_ERROR)
             return False
 
     def sig_previous(self, widget=None):
         if not self.modified_save():
             return
         self.screen.display_prev()
-        self.message_info('')
+        self.message_info()
         self.activate_save()
 
     def sig_next(self, widget=None):
         if not self.modified_save():
             return
         self.screen.display_next()
-        self.message_info('')
+        self.message_info()
         self.activate_save()
 
     def sig_reload(self, test_modified=True):
@@ -389,7 +427,7 @@ class Form(SignalEvent, TabContent):
                     set_cursor = True
                     break
         self.screen.display(set_cursor=set_cursor)
-        self.message_info('')
+        self.message_info()
         self.activate_save()
         return True
 
@@ -438,16 +476,6 @@ class Form(SignalEvent, TabContent):
         menu.show_all()
         menu.popup(None, None, menu_position, 0, 0)
 
-    def message_info(self, message, color='red'):
-        if message:
-            self.info_label.set_label(message)
-            self.eb_info.modify_bg(gtk.STATE_NORMAL, gtk.gdk.color_parse(
-                COLOR_SCHEMES.get(color, 'white')))
-            self.eb_info.show_all()
-        else:
-            self.info_label.set_label('')
-            self.eb_info.hide()
-
     def _record_message(self, screen, signal_data):
         name = '_'
         if signal_data[0]:
@@ -465,9 +493,9 @@ class Form(SignalEvent, TabContent):
         if signal_data[1] < signal_data[2]:
             msg += _(' of ') + str(signal_data[2])
         self.status_label.set_text(msg)
-        self.message_info('')
+        self.message_info()
         self.activate_save()
-        self.url_entry.set_text(self.screen.get_url())
+        #self.url_entry.set_text(self.screen.get_url())
 
     def _record_modified(self, screen, signal_data):
         # As it is called via idle_add, the form could have been destroyed in
@@ -485,7 +513,7 @@ class Form(SignalEvent, TabContent):
         if self.screen.modified():
             value = sur_3b(
                 _('This record has been modified\n'
-                    'do you want to save it ?'))
+                    'do you want to save it?'))
             if value == 'ok':
                 return self.sig_save(None)
             if value == 'ko':
@@ -624,7 +652,8 @@ class Form(SignalEvent, TabContent):
                             'model': self.model,
                             'ids': [r.id
                                 for r in self.screen.selected_records],
-                            'id': self.id_get(),
+                            'id': (self.screen.current_record.id
+                                if self.screen.current_record else None),
                             }), func)
                 menuitem._update_action = True
                 menu.add(menuitem)

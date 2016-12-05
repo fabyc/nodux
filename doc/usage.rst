@@ -481,20 +481,15 @@ Save Width/Height:
 Save Tree Expanded State:
   Check box to enable saving of expanded and selected nodes in trees/lists.
 
+.. _Menu-Options-Form-Fast_Tabbing:
+
+Fast Tabbing:
+  Check box to enable fast tabbing navigation by skipping readonly entries.
+
 .. _Menu-Options-Form-Spell_Checking:
 
 Spell Checking:
   Check box to enable spell checking in fields.
-
-.. _Menu-Options-Form-Tabs_Position:
-
-Tabs Position
-  Sets up the position of the :term:`tabs` inside :term:`views`:
-
-  * Top
-  * Left
-  * Right
-  * Bottom
 
 .. _Menu-Options-Email:
 
@@ -689,7 +684,7 @@ Export Data...:
     - Clear: Removes all fields from *Fields to export*.
     - Save Export: Saves field mapping to a *Predefined export* with a name.
     - Delete Export: Deletes a selected *Predefined export*.
-    - Ok: Exports the data (action depending on *Options*).
+    - OK: Exports the data (action depending on *Options*).
     - Cancel
 
 .. _Toolbar-Import_Data:
@@ -713,7 +708,7 @@ Import Data...:
     - Remove: Deletes fields from *Fields to Import*.
     - Clear: Removes all fields from *Fields to Import*.
     - Auto-Detect: Tries to auto detect fields in the CSV *File to Import*.
-    - Ok: Proceeds the data import.
+    - OK: Proceeds the data import.
     - Cancel
 
 Widgets

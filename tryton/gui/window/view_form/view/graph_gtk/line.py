@@ -1,12 +1,15 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
-#This code is inspired by the pycha project
-#(http://www.lorenzogil.com/projects/pycha/)
-from graph import Graph
-from tryton.common import hex2rgb, float_time_to_text
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
+# This code is inspired by the pycha project
+# (http://www.lorenzogil.com/projects/pycha/)
 import locale
 import math
+import datetime
+
 import cairo
+
+from graph import Graph
+import tryton.common as common
 import tryton.rpc as rpc
 
 
@@ -100,29 +103,36 @@ class Line(Graph):
 
         cr.save()
         cr.set_line_width(2)
-        for key in self._getDatasKeys():
-            if key2fill[key]:
-                cr.save()
-                cr.set_source_rgba(0, 0, 0, 0.15)
-                cr.translate(2, -2)
-                preparePath(key)
-                cr.fill()
-                cr.restore()
 
-                r, g, b = self.colorScheme[key]
-                linear = cairo.LinearGradient(width / 2, 0, width / 2, height)
-                linear.add_color_stop_rgb(0,
-                        3.5 * r / 5.0, 3.5 * g / 5.0, 3.5 * b / 5.0)
-                linear.add_color_stop_rgb(1, r, g, b)
-                cr.set_source(linear)
-                preparePath(key)
-                cr.fill()
-            else:
-                preparePath(key)
+        if self._getDatasKeys():
+            transparency = 0.8 / len(self._getDatasKeys())
+            for key in self._getDatasKeys():
+                if key2fill[key]:
+                    cr.save()
+
+                    r, g, b = self.colorScheme[key]
+                    preparePath(key)
+                    cr.set_source_rgb(r, g, b)
+                    cr.stroke_preserve()
+                    cr.restore()
+
+                    # Add soft transparency the area when line is filled
+                    cr.set_source_rgba(r, g, b, transparency)
+                    cr.fill()
+
+                    # Add gradient top to bottom
+                    linear = cairo.LinearGradient(
+                        width / 2, 0, width / 2, height)
+                    linear.add_color_stop_rgba(
+                        0, r * 0.65, g * 0.65, b * 0.65, transparency)
+                    linear.add_color_stop_rgba(1, r, g, b, 0.1)
+                    cr.set_source(linear)
+                    preparePath(key)
+                    cr.fill()
+                else:
+                    preparePath(key)
 
         for point in self.points:
-            if key2fill[point.yname]:
-                continue
             cr.set_source_rgb(*self.colorScheme[point.yname])
             cr.move_to(point.x * self.area.w + self.area.x,
                     point.y * self.area.h + self.area.y)
@@ -139,14 +149,15 @@ class Line(Graph):
         for point in self.points:
             if point.highlight:
                 cr.set_line_width(2)
-                cr.set_source_rgb(*hex2rgb('#000000'))
+                cr.set_source_rgb(*common.hex2rgb('#000000'))
                 cr.move_to(point.x * self.area.w + self.area.x,
                         point.y * self.area.h + self.area.y)
                 cr.arc(point.x * self.area.w + self.area.x,
                     point.y * self.area.h + self.area.y,
                     3, 0, 2 * math.pi)
                 cr.stroke()
-                cr.set_source_rgb(*self.colorScheme['__highlight'])
+                cr.set_source_rgb(*common.highlight_rgb(
+                        *self.colorScheme[point.yname]))
                 cr.arc(point.x * self.area.w + self.area.x,
                     point.y * self.area.h + self.area.y,
                     3, 0, 2 * math.pi)
@@ -175,21 +186,20 @@ class Line(Graph):
 
         highlight = False
         draw_points = []
-        yfields_float_time = dict(
-            (x.get('key', x['name']), x.get('float_time'))
-            for x in self.yfields if x.get('widget'))
+        yfields_timedelta = {x.get('key', x['name']): x.get('timedelta')
+            for x in self.yfields if 'timedelta' in x}
         for point in self.points:
             if point == nearest[0] and nearest[1] < dia / 100:
                 if not point.highlight:
                     point.highlight = True
                     label = keys2txt[point.yname]
                     label += '\n'
-                    if point.yname in yfields_float_time:
-                        conv = None
-                        if yfields_float_time[point.yname]:
-                            conv = rpc.CONTEXT.get(
-                                    yfields_float_time[point.yname])
-                        label += float_time_to_text(point.yval, conv)
+                    if point.yval in yfields_timedelta:
+                        converter = None
+                        if yfields_timedelta[point.yname]:
+                            converter = rpc.CONTEXT.get(
+                                yfields_timedelta[point.yname])
+                        label += common.timedelta.format(point.yval, converter)
                     else:
                         label += locale.format('%.2f', point.yval, True)
                     label += '\n'
@@ -246,15 +256,15 @@ class Line(Graph):
 
     def YLabels(self):
         ylabels = super(Line, self).YLabels()
-        if len([x.get('key', x['name']) for x in self.yfields
-                    if x.get('widget')]) == len(self.yfields):
-            conv = None
-            float_time = reduce(lambda x, y: x == y and x or False,
-                    [x.get('float_time') for x in self.yfields])
-            if float_time:
-                conv = rpc.CONTEXT.get(float_time)
-            return [(x[0], float_time_to_text(locale.atof(x[1]), conv))
-                    for x in ylabels]
+        if all('timedelta' in f for f in self.yfields):
+            converter = {f.get('timedelta') for f in self.yfields}
+            if len(converter) == 1:
+                converter = rpc.CONTEXT.get(converter.pop())
+            return [
+                (x[0], common.timedelta.format(
+                        datetime.timedelta(seconds=locale.atof(x[1])),
+                        converter))
+                for x in ylabels]
         return ylabels
 
 

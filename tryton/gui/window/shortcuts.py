@@ -1,5 +1,5 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level
-#of this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 
 import gtk
 import gettext
@@ -42,6 +42,38 @@ class Shortcuts(object):
             ]
         notebook.append_page(self._fill_table(shortcuts),
                 gtk.Label(_('Edition Widgets')))
+
+        shortcuts = [
+            (_('Move Cursor'),),
+            ('<Right>', _('Move to right')),
+            ('<Left>', _('Move to left')),
+            ('<Up>', _('Move up')),
+            ('<Down>', _('Move down')),
+            ('<Page Up>', _('Move up of one page')),
+            ('<Page Down>', _('Move down of one page')),
+            ('<Home>', _('Move to top')),
+            ('<End>', _('Move to bottom')),
+            ('<Backspace>', _('Move to parent')),
+            (_('Selection'),),
+            ('<Ctrl> + a', _('Select all')),
+            ('<Ctrl> + /', _('Select all')),
+            ('<Shift> + <Ctrl> + a', _('Unselect all')),
+            ('<Shift> + <Ctrl> + /', _('Unselect all')),
+            ('<Backspace>', _('Select parent')),
+            ('<Space>', _('Select/Activate current row')),
+            ('<Shift> + <Space>', _('Select/Activate current row')),
+            ('<Return>', _('Select/Activate current row')),
+            ('<Enter>', _('Select/Activate current row')),
+            ('<Ctrl> + <Space>', _('Toggle selection')),
+            (_('Expand/Collapse'),),
+            ('+', _('Expand row')),
+            ('-', _('Collapse row')),
+            ('<Space>', _('Toggle row')),
+            ('<Shift> + <Left>', _('Expand all rows')),
+            ('<Shift> + <Right>', _('Collapse all rows')),
+            ]
+        notebook.append_page(self._fill_table(shortcuts),
+                gtk.Label(_('Tree view')))
 
         self.dialog.show_all()
 

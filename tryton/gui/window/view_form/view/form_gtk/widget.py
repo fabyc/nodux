@@ -1,10 +1,9 @@
-#This file is part of Tryton.  The COPYRIGHT file at the top level of
-#this repository contains the full copyright notices and license terms.
+# This file is part of Tryton.  The COPYRIGHT file at the top level of
+# this repository contains the full copyright notices and license terms.
 import gtk
 import gobject
 import gettext
 
-from tryton.common import COLORS
 import tryton.common as common
 from tryton.gui.window.nomodal import NoModal
 from tryton.common import TRYTON_ICON
@@ -21,9 +20,8 @@ class Widget(object):
         self.view = view
         self.attrs = attrs
         self.widget = None
-        self.colors = {}
+        self.mnemonic_widget = None
         self.visible = True
-        self.color_name = None
 
     @property
     def field_name(self):
@@ -52,9 +50,6 @@ class Widget(object):
     def _readonly_set(self, readonly):
         pass
 
-    def _color_widget(self):
-        return self.widget
-
     def _invisible_widget(self):
         return self.widget
 
@@ -76,55 +71,6 @@ class Widget(object):
         # Wait the current event is finished to retreive the value
         gobject.idle_add(get_value)
         return False
-
-    def color_set(self, name):
-        self.color_name = name
-        widget = self._color_widget()
-
-        if not self.colors:
-            style = widget.get_style()
-            self.colors = {
-                'bg_color_active': style.bg[gtk.STATE_ACTIVE],
-                'bg_color_insensitive': style.bg[gtk.STATE_INSENSITIVE],
-                'base_color_normal': style.base[gtk.STATE_NORMAL],
-                'base_color_insensitive': style.base[gtk.STATE_INSENSITIVE],
-                'fg_color_normal': style.fg[gtk.STATE_NORMAL],
-                'fg_color_insensitive': style.fg[gtk.STATE_INSENSITIVE],
-                'text_color_normal': style.text[gtk.STATE_NORMAL],
-                'text_color_insensitive': style.text[gtk.STATE_INSENSITIVE],
-            }
-
-        if COLORS.get(name):
-            colormap = widget.get_colormap()
-            bg_color = colormap.alloc_color(COLORS.get(name, 'white'))
-            fg_color = gtk.gdk.color_parse("black")
-            widget.modify_bg(gtk.STATE_ACTIVE, bg_color)
-            widget.modify_base(gtk.STATE_NORMAL, bg_color)
-            widget.modify_fg(gtk.STATE_NORMAL, fg_color)
-            widget.modify_text(gtk.STATE_NORMAL, fg_color)
-            widget.modify_text(gtk.STATE_INSENSITIVE, fg_color)
-        elif name == 'readonly':
-            widget.modify_bg(gtk.STATE_ACTIVE,
-                    self.colors['bg_color_insensitive'])
-            widget.modify_base(gtk.STATE_NORMAL,
-                    self.colors['base_color_insensitive'])
-            widget.modify_fg(gtk.STATE_NORMAL,
-                    self.colors['fg_color_insensitive'])
-            widget.modify_text(gtk.STATE_NORMAL,
-                    self.colors['text_color_normal'])
-            widget.modify_text(gtk.STATE_INSENSITIVE,
-                    self.colors['text_color_normal'])
-        else:
-            widget.modify_bg(gtk.STATE_ACTIVE,
-                    self.colors['bg_color_active'])
-            widget.modify_base(gtk.STATE_NORMAL,
-                    self.colors['base_color_normal'])
-            widget.modify_fg(gtk.STATE_NORMAL,
-                    self.colors['fg_color_normal'])
-            widget.modify_text(gtk.STATE_NORMAL,
-                    self.colors['text_color_normal'])
-            widget.modify_text(gtk.STATE_INSENSITIVE,
-                    self.colors['text_color_normal'])
 
     def invisible_set(self, value):
         widget = self._invisible_widget()
@@ -152,14 +98,6 @@ class Widget(object):
         if self.view.screen.readonly:
             readonly = True
         self._readonly_set(readonly)
-        if readonly:
-            self.color_set('readonly')
-        elif not field.get_state_attrs(record).get('valid', True):
-            self.color_set('invalid')
-        elif field.get_state_attrs(record).get('required', False):
-            self.color_set('required')
-        else:
-            self.color_set('normal')
         self.invisible_set(self.attrs.get('invisible',
             field.get_state_attrs(record).get('invisible', False)))
 
@@ -200,7 +138,7 @@ class TranslateDialog(NoModal):
             else:
                 label = language['name'] + _(':')
             label = gtk.Label(label)
-            label.set_alignment(1.0, 0.5)
+            label.set_alignment(1.0, 0.0 if self.widget.expand else 0.5)
             table.attach(label, 0, 1, i, i + 1, xoptions=gtk.FILL)
 
             context = dict(
@@ -223,9 +161,13 @@ class TranslateDialog(NoModal):
             except RPCException:
                 return
             widget = self.widget.translate_widget()
+            label.set_mnemonic_widget(widget)
             self.widget.translate_widget_set(widget, fuzzy_value)
             self.widget.translate_widget_set_readonly(widget, True)
-            table.attach(widget, 1, 2, i, i + 1)
+            yopt = 0
+            if self.widget.expand:
+                yopt |= gtk.EXPAND | gtk.FILL
+            table.attach(widget, 1, 2, i, i + 1, yoptions=yopt)
             editing = gtk.CheckButton()
             editing.connect('toggled', self.editing_toggled, widget)
             tooltips.set_tip(editing, _('Edit'))
@@ -239,7 +181,7 @@ class TranslateDialog(NoModal):
 
         tooltips.enable()
         vbox = gtk.VBox()
-        vbox.pack_start(table, False, True)
+        vbox.pack_start(table, self.widget.expand, True)
         viewport = gtk.Viewport()
         viewport.set_shadow_type(gtk.SHADOW_NONE)
         viewport.add(vbox)
