@@ -59,6 +59,7 @@ class Wizard(object):
             try:
                 result = result()
             except RPCException:
+                self.destroy()
                 return
             self.session_id, self.start_state, self.end_state = result
             self.state = self.start_state
@@ -294,7 +295,6 @@ class WizardDialog(Wizard, NoModal):
         self.dia.set_position(gtk.WIN_POS_CENTER_ON_PARENT)
         self.dia.set_icon(TRYTON_ICON)
         self.dia.set_deletable(False)
-        self.dia.connect('delete-event', lambda *a: True)
         self.dia.connect('close', self.close)
         self.dia.connect('response', self.response)
 
@@ -324,12 +324,14 @@ class WizardDialog(Wizard, NoModal):
         return button
 
     def update(self, view, defaults, buttons):
-        super(WizardDialog, self).update(view, defaults, buttons)
+        # Dialog must be shown before the screen is displayed
+        # to get the treeview realized when displayed
         sensible_allocation = self.sensible_widget.get_allocation()
         self.dia.set_default_size(int(sensible_allocation.width * 0.9),
             int(sensible_allocation.height * 0.9))
         self.dia.show()
         common.center_window(self.dia, self.parent, self.sensible_widget)
+        super(WizardDialog, self).update(view, defaults, buttons)
 
     def destroy(self, action=None):
         super(WizardDialog, self).destroy()

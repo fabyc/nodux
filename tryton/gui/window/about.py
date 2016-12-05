@@ -719,7 +719,7 @@ class About(object):
         self.win = gtk.AboutDialog()
         self.win.set_transient_for(parent)
         self.win.set_name('Nodux')
-        self.win.set_version('1.1.4.9')
+        self.win.set_version('1.3.4.15')
         #self.win.set_copyright(COPYRIGHT)
         self.win.set_license('Licencia Nodux')
         self.win.set_website('http://nodux.ec')

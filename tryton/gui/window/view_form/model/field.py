@@ -35,8 +35,6 @@ class Field(object):
         self.name = attrs['name']
 
     def sig_changed(self, record):
-        if self.get_state_attrs(record).get('readonly', False):
-            return
         record.on_change([self.name])
         record.on_change_with([self.name])
         record.autocomplete_with(self.name)
@@ -379,6 +377,9 @@ class M2OField(Field):
 
     _default = None
 
+    def _is_empty(self, record):
+        return self.get(record) is None
+
     def get_client(self, record):
         rec_name = record.value.get(self.name + '.rec_name')
         if rec_name is None:
@@ -571,12 +572,14 @@ class O2MField(Field):
     def _set_value(self, record, value, default=False):
         self._set_default_value(record)
         group = record.value[self.name]
-        if not value or (len(value) and isinstance(value[0], (int, long))):
+        if value is None:
+            value = []
+        if not value or isinstance(value[0], (int, long)):
             mode = 'list ids'
         else:
             mode = 'list values'
 
-        if mode == 'list values' and len(value):
+        if mode == 'list values':
             context = self.context_get(record)
             field_names = set(f for v in value for f in v
                 if f not in group.fields)
@@ -741,8 +744,9 @@ class O2MField(Field):
 
     def domain_get(self, record):
         screen_domain, attr_domain = self.domains_get(record)
-        return concat(localize_domain(inverse_leaf(screen_domain), self.name),
-            attr_domain)
+        # Forget screen_domain because it only means at least one record
+        # and not all records
+        return attr_domain
 
 
 class M2MField(O2MField):

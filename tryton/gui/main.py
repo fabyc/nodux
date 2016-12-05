@@ -777,9 +777,10 @@ class Main(object):
                 False, mode=['tree', 'form'])
         try:
             favorites = RPCExecute('model',
-                self.menu_screen.model_name + '.favorite', 'get')
-        except RPCException:
-            favorites = []
+                self.menu_screen.model_name + '.favorite', 'get',
+                process_exception=False)
+        except Exception:
+            return False
         menu = self.menuitem_favorite.get_submenu()
         if not menu:
             menu = gtk.Menu()
@@ -891,8 +892,8 @@ class Main(object):
                     self.set_menubar()
                     self.favorite_unset()
                 CONFIG['client.lang'] = prefs['language']
-            # Set placeholder after language is set to get correct translation
-            self.global_search_entry.set_placeholder_text(_('Search'))
+                # Set placeholder after language is set to get correct translation
+                self.global_search_entry.set_placeholder_text(_('Search'))
             CONFIG.save()
 
         def _get_preferences():

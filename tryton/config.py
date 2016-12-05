@@ -38,7 +38,7 @@ class ConfigManager(object):
     "Config manager"
 
     def __init__(self):
-        short_version = '1.1' #short_version = '.'.join(VERSION.split('.', 2)[:2])
+        short_version = '1.3' #short_version = '.'.join(VERSION.split('.', 2)[:2])
         demo_server = 'demo%s.nodux.ec' % short_version # demo_server = 'demo%s.tryton.org' % short_version
         demo_database = 'demo%s' % short_version
         form_tab = 'left' if os.name != 'nt' else 'top'

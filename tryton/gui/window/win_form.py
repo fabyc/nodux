@@ -39,7 +39,6 @@ class WinForm(NoModal):
         self.win.set_icon(TRYTON_ICON)
         self.win.set_has_separator(False)
         self.win.set_deletable(False)
-        self.win.connect('delete-event', lambda *a: True)
         self.win.connect('close', self.close)
         self.win.connect('response', self.response)
 

@@ -477,6 +477,10 @@ def file_selection(title, filename='',
         win.set_preview_widget(img_preview)
         win.connect('update-preview', update_preview_cb, img_preview)
 
+    if os.name == 'nt':
+        encoding = 'utf-8'
+    else:
+        encoding = sys.getfilesystemencoding()
     button = win.run()
     if button != gtk.RESPONSE_OK:
         parent.present()
@@ -485,7 +489,7 @@ def file_selection(title, filename='',
     if not multi:
         filepath = win.get_filename()
         if filepath:
-            filepath = filepath.decode('utf-8')
+            filepath = unicode(filepath, encoding)
             try:
                 CONFIG['client.default_path'] = \
                     os.path.dirname(filepath)
@@ -498,7 +502,7 @@ def file_selection(title, filename='',
     else:
         filenames = win.get_filenames()
         if filenames:
-            filenames = [x.decode('utf-8') for x in filenames]
+            filenames = [unicode(x, encoding) for x in filenames]
             try:
                 CONFIG['client.default_path'] = \
                     os.path.dirname(filenames[0])
@@ -858,8 +862,8 @@ class ErrorDialog(UniqueDialog):
             gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT)
         dialog.set_has_separator(True)
 
-        #but_send = gtk.Button(_('Report Bug'))
-        #dialog.add_action_widget(but_send, gtk.RESPONSE_OK)
+        but_send = gtk.Button(_('Report Bug'))
+        dialog.add_action_widget(but_send, gtk.RESPONSE_OK)
         dialog.add_button("gtk-close", gtk.RESPONSE_CANCEL)
         dialog.set_default_response(gtk.RESPONSE_CANCEL)
 
@@ -1534,11 +1538,12 @@ def humanize(size):
 
 def get_hostname(netloc):
     if '[' in netloc and ']' in netloc:
-        return netloc.split(']')[0][1:]
+        hostname = netloc.split(']')[0][1:]
     elif ':' in netloc:
-        return netloc.split(':')[0]
+        hostname = netloc.split(':')[0]
     else:
-        return netloc
+        hostname = netloc
+    return hostname.strip()
 
 
 def get_port(netloc):

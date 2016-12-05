@@ -79,8 +79,8 @@ class Calendar_(goocalendar.Calendar):
             if not record[dtstart].get(record):
                 continue
 
-            start = record[dtstart].get(record)
-            end = record[dtend].get(record)
+            start = record[dtstart].get_client(record)
+            end = record[dtend].get_client(record)
             midnight = datetime.time(0)
             all_day = False
             if not isinstance(start, datetime.datetime):
@@ -90,6 +90,10 @@ class Calendar_(goocalendar.Calendar):
                 all_day = True
             elif not end:
                 all_day = True
+
+            # Skip invalid event
+            if end is not None and start > end:
+                continue
 
             # TODO define color code
             label = '\n'.join(record[attrs['name']].get_client(record)
