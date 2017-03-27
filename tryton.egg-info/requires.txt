@@ -1,10 +1,10 @@
 python-dateutil
 
-[cdecimal]
-cdecimal
-
 [calendar]
 GooCalendar
+
+[cdecimal]
+cdecimal
 
 [simplejson]
 simplejson
