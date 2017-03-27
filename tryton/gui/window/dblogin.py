@@ -409,11 +409,11 @@ class DBLogin(object):
         self.profile_label.set_padding(3, 3)
         self.profile_button = gtk.Button(_('_Manage profiles'))
         self.profile_button.connect('clicked', self.profile_manage)
-        #self.table_main.attach(self.profile_label, 0, 1, 1, 2,
-        #    xoptions=gtk.FILL)
-        #self.table_main.attach(self.combo_profile, 1, 2, 1, 2)
-        #self.table_main.attach(self.profile_button, 2, 3, 1, 2,
-        #    xoptions=gtk.FILL)
+        self.table_main.attach(self.profile_label, 0, 1, 1, 2,
+            xoptions=gtk.FILL)
+        self.table_main.attach(self.combo_profile, 1, 2, 1, 2)
+        self.table_main.attach(self.profile_button, 2, 3, 1, 2,
+            xoptions=gtk.FILL)
         image = gtk.Image()
         image.set_from_stock('gtk-edit', gtk.ICON_SIZE_BUTTON)
         self.profile_button.set_image(image)
@@ -466,8 +466,8 @@ class DBLogin(object):
         self.profile_cfg = os.path.join(get_config_dir(), 'profiles.cfg')
         self.profiles = ConfigParser.SafeConfigParser({'port': '8000'})
         if not os.path.exists(self.profile_cfg):
-            short_version = '.'.join(__version__.split('.', 2)[:2])
-            name = 'demo%s.tryton.org' % short_version
+            short_version = '4.0' #short_version = '.'.join(VERSION.split('.', 2)[:2])
+            name = 'demo%s.nodux.ec' % short_version # name = 'demo%s.tryton.org' % short_version
             self.profiles.add_section(name)
             self.profiles.set(name, 'host', name)
             self.profiles.set(name, 'port', '8000')

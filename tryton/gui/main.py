@@ -283,6 +283,7 @@ class Main(object):
 
     def set_global_search(self):
         self.global_search_entry = PlaceholderEntry()
+        self.global_search_entry.set_placeholder_text(_('Search'))
         global_search_completion = gtk.EntryCompletion()
         global_search_completion.set_match_func(lambda *a: True)
         global_search_completion.set_model(gtk.ListStore(
@@ -409,13 +410,13 @@ class Main(object):
         imagemenuitem_disconnect.set_accel_path('<tryton>/File/Disconnect')
         menu_file.add(imagemenuitem_disconnect)
 
-        menu_file.add(gtk.SeparatorMenuItem())
+        #menu_file.add(gtk.SeparatorMenuItem())
 
         imagemenuitem_database = gtk.ImageMenuItem(_('Data_base'))
         image = gtk.Image()
         image.set_from_stock('tryton-system-file-manager', gtk.ICON_SIZE_MENU)
         imagemenuitem_database.set_image(image)
-        menu_file.add(imagemenuitem_database)
+        #menu_file.add(imagemenuitem_database)
 
         menu_database = gtk.Menu()
         menu_database.set_accel_group(self.accel_group)
@@ -857,7 +858,8 @@ class Main(object):
                     self.favorite_unset()
                 CONFIG['client.lang'] = prefs['language']
             # Set placeholder after language is set to get correct translation
-            self.global_search_entry.set_placeholder_text(_('Search'))
+            if self.global_search_entry:
+                self.global_search_entry.set_placeholder_text(_('Search'))
             CONFIG.save()
 
         def _get_preferences():

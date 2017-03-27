@@ -19,7 +19,7 @@ class Tips(object):
 
 '''),
 #            _(u'''<b>Do you know Triton, one of the namesakes for our project?</b>
-#
+
 #Triton (pronounced /ˈtraɪtən/ TRYE-tən, or as in Greek Τρίτων) is the
 #largest moon of the planet Neptune, discovered on October 10, 1846
 #by William Lassell. It is the only large moon in the Solar System
