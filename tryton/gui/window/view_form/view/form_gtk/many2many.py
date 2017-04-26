@@ -10,6 +10,7 @@ import tryton.common as common
 import gettext
 from tryton.common.placeholder_entry import PlaceholderEntry
 from tryton.common.completion import get_completion, update_completion
+from tryton.common import RPCExecute, RPCException
 
 _ = gettext.gettext
 
@@ -38,6 +39,7 @@ class Many2Many(Widget):
         self.wid_text = PlaceholderEntry()
         self.wid_text.set_placeholder_text(_('Search'))
         self.wid_text.set_property('width_chars', 13)
+        self.wid_text.connect('key_press_event', self.on_keypress)
         self.wid_text.connect('focus-out-event', lambda *a: self._focus_out())
         self.focus_out = True
         hbox.pack_start(self.wid_text, expand=True, fill=True)
@@ -147,6 +149,20 @@ class Many2Many(Widget):
         value = self.wid_text.get_text().decode('utf-8')
 
         self.focus_out = False
+
+        domain2 = [('rec_name', 'ilike', '%' + value + '%'), domain]
+        try:
+            ids = RPCExecute('model', self.attrs['relation'], 'search',
+                domain2, 0, 2, None, context=context)
+        except RPCException:
+            ids = []
+        if len(ids) == 1:
+            self.focus_out = True
+            self.screen.load(ids, modified=True)
+            self.screen.display(res_id=ids[0])
+            self.screen.set_cursor()
+            self.wid_text.set_text('')
+            return
 
         def callback(result):
             self.focus_out = True

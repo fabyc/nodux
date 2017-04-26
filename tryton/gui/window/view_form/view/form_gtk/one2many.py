@@ -10,13 +10,13 @@ from tryton.gui.window.win_form import WinForm
 import tryton.common as common
 from tryton.common.placeholder_entry import PlaceholderEntry
 from tryton.common.completion import get_completion, update_completion
+from tryton.common import RPCExecute, RPCException
 
 _ = gettext.gettext
 
 
 class One2Many(Widget):
     expand = True
-
     def __init__(self, view, attrs):
         super(One2Many, self).__init__(view, attrs)
 
@@ -43,6 +43,8 @@ class One2Many(Widget):
             self.wid_text = PlaceholderEntry()
             self.wid_text.set_placeholder_text(_('Search'))
             self.wid_text.set_property('width_chars', 13)
+            if self.attrs.get('add_remove'):
+                self.wid_text.connect('key_press_event', self.on_keypress)
             self.wid_text.connect('focus-out-event',
                 lambda *a: self._focus_out())
             hbox.pack_start(self.wid_text, expand=True, fill=True)
@@ -185,8 +187,6 @@ class One2Many(Widget):
         self.widget.pack_start(self.screen.widget, expand=True, fill=True)
 
         self.screen.widget.connect('key_press_event', self.on_keypress)
-        if self.attrs.get('add_remove'):
-            self.wid_text.connect('key_press_event', self.on_keypress)
 
         but_switch.props.sensitive = self.screen.number_of_views > 1
 
@@ -401,6 +401,21 @@ class One2Many(Widget):
         sequence = None
         if self.screen.current_view.view_type == 'tree':
             sequence = self.screen.current_view.attributes.get('sequence')
+        domain2 = [('rec_name', 'ilike', '%' + text + '%'), domain]
+        try:
+            ids = RPCExecute('model', self.attrs['relation'], 'search',
+                domain2, 0, 2, None, context=context)
+        except RPCException:
+            ids = []
+        if len(ids) == 1:
+            self.focus_out = True
+            self.screen.load(ids, modified=True)
+            self.screen.display(res_id=ids[0])
+            if sequence:
+                self.screen.group.set_sequence(field=sequence)
+            self.screen.set_cursor()
+            self.wid_text.set_text('')
+            return
 
         def callback(result):
             self.focus_out = True
